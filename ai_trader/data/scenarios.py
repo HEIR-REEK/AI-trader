@@ -44,6 +44,8 @@ class ScenarioConfig:
     seed: int = 1
     end: Optional[datetime] = None
     direction: str = "long"              # "long" or "short" (mirrored)
+    resolve: Optional[str] = None        # None | "win" | "loss" | "flat": append bars after the setup that play the trade out
+    resolve_bars: int = 60
 
 
 def _leg(prev: float, move: float, bars: int, rng: np.random.Generator, atr: float) -> List[float]:
@@ -143,8 +145,36 @@ def textbook_pullback_setup(cfg: ScenarioConfig = ScenarioConfig()) -> pd.DataFr
             c_ = prev + 0.8 * atr
             add(o_, c_ + 0.05 * atr, o_ - 0.5 * atr, c_, 520 if cfg.volume_confirms else 130)   # engulfing-style close inside/above gap
             prev = c_
+    setup_end = len(C) - 1                          # index of the confirmation bar (the "as of now" bar)
+    if cfg.resolve:
+        # Play the setup out so a backtest can resolve the position deterministically:
+        #   win  → drift up through the equal-highs / trend top (all targets), never revisiting the sweep low
+        #   loss → one bar of hesitation then a drive through the sweep low
+        #   flat → drift sideways inside the zone (order expiry / time stop path)
+        risk = prev - sweep_low
+        if cfg.resolve == "win":
+            path = np.linspace(prev, prev + 8.0 * risk, cfg.resolve_bars)
+            for i, c in enumerate(path):
+                o_ = prev
+                add(o_, max(o_, c) + 0.1 * atr, min(o_, c) - 0.1 * atr, c, 200 + rng.gamma(2, 20))
+                prev = c
+        elif cfg.resolve == "loss":
+            c = prev - 0.3 * atr
+            add(prev, prev + 0.1 * atr, c - 0.1 * atr, c, 150)
+            prev = c
+            path = np.linspace(prev, sweep_low - 3.0 * atr, cfg.resolve_bars)
+            for c in path:
+                add(prev, prev + 0.1 * atr, min(prev, c) - 0.1 * atr, c, 220 + rng.gamma(2, 20))
+                prev = c
+        else:
+            for _ in range(cfg.resolve_bars):
+                c = prev + rng.normal(0, 0.1 * atr)
+                add(prev, max(prev, c) + 0.05 * atr, min(prev, c) - 0.05 * atr, c, 120)
+                prev = c
     total = len(C)
-    end_ts = pd.Timestamp(cfg.end or datetime(2026, 9, 4, 13, 45, tzinfo=timezone.utc)).floor("15min")
+    # anchor the *setup* bar at cfg.end (13:45 UTC = NY session) so resolution bars extend past it
+    setup_ts = pd.Timestamp(cfg.end or datetime(2026, 9, 4, 13, 45, tzinfo=timezone.utc)).floor("15min")
+    end_ts = setup_ts + pd.Timedelta(minutes=15 * (total - 1 - setup_end))
     idx = pd.date_range(end=end_ts, periods=total, freq="15min", tz="UTC")
     df = pd.DataFrame({"open": O, "high": H, "low": L, "close": C, "volume": V}, index=idx)
     df.index.name = "ts"
@@ -160,7 +190,8 @@ def textbook_pullback_setup(cfg: ScenarioConfig = ScenarioConfig()) -> pd.DataFr
         sweep_low, eq_low, top = 2 * pivot - sweep_low, 2 * pivot - eq_low, 2 * pivot - top
         gap_low, gap_high = 2 * pivot - gap_high, 2 * pivot - gap_low
     df.attrs["scenario"] = {"sweep_low": float(sweep_low), "eq_low": float(eq_low), "fvg": (float(gap_low), float(gap_high)),
-                            "trend_top": float(top), "direction": cfg.direction}
+                            "trend_top": float(top), "direction": cfg.direction, "setup_end": int(setup_end),
+                            "setup_ts": df.index[setup_end].isoformat(), "resolve": cfg.resolve}
     return df
 
 

@@ -79,7 +79,9 @@ class CSVProvider:
             raise ProviderError(f"CSV not found: {path}")
         df = normalise_ohlcv(pd.read_csv(path))
         if end is not None:
-            df = df[df.index <= pd.Timestamp(end).tz_convert("UTC") if pd.Timestamp(end).tzinfo else pd.Timestamp(end, tz="UTC")]
+            e = pd.Timestamp(end)
+            e = e.tz_localize("UTC") if e.tzinfo is None else e.tz_convert("UTC")
+            df = df[df.index <= e]
         return df.tail(limit)
 
     def save(self, symbol: str, timeframe: Timeframe, df: pd.DataFrame) -> str:
@@ -274,6 +276,10 @@ class FrameProvider:
     lowest available one."""
     frames: Dict[str, Dict[Timeframe, pd.DataFrame]]
     name: str = "frames"
+    _cache: Dict[tuple, pd.DataFrame] = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        self._cache = {}
 
     def available(self) -> bool:
         return bool(self.frames)
@@ -291,7 +297,14 @@ class FrameProvider:
             lowest = min(tfs, key=lambda t: t.minutes)
             if lowest.minutes > timeframe.minutes:
                 raise ProviderError(f"cannot build {timeframe.value} from {lowest.value}")
-            df = resample_ohlcv(tfs[lowest], lowest, timeframe, drop_incomplete=True)
+            src = tfs[lowest]
+            key = (sym, timeframe, id(src), len(src), int(src.index[-1].value))
+            df = self._cache.get(key)
+            if df is None:
+                df = resample_ohlcv(src, lowest, timeframe, drop_incomplete=True)
+                if len(self._cache) > 64:
+                    self._cache.clear()
+                self._cache[key] = df
         if end is not None:
             e = pd.Timestamp(end)
             e = e.tz_localize("UTC") if e.tzinfo is None else e.tz_convert("UTC")

@@ -35,18 +35,21 @@ from .indicators import atr as _atr
 # --------------------------------------------------------------------------
 def find_swings(df: pd.DataFrame, lookback: int = 3, upto: Optional[int] = None) -> List[SwingPoint]:
     """Fractal swings: high[i] is the max of high[i-k..i+k] (ties broken by first)."""
-    highs = df["high"].to_numpy()
-    lows = df["low"].to_numpy()
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
     n = len(df) if upto is None else min(len(df), upto + 1)
-    swings: List[SwingPoint] = []
     k = lookback
-    for i in range(k, n - k):
-        win_h = highs[i - k:i + k + 1]
-        win_l = lows[i - k:i + k + 1]
-        if highs[i] == win_h.max() and np.argmax(win_h) == k:
-            swings.append(SwingPoint(i, df.index[i].to_pydatetime(), float(highs[i]), "H", i + k))
-        if lows[i] == win_l.min() and np.argmin(win_l) == k:
-            swings.append(SwingPoint(i, df.index[i].to_pydatetime(), float(lows[i]), "L", i + k))
+    if n < 2 * k + 1:
+        return []
+    from numpy.lib.stride_tricks import sliding_window_view
+    w = 2 * k + 1
+    win_h = sliding_window_view(highs[:n], w)          # row j ↔ centre index i = j + k
+    win_l = sliding_window_view(lows[:n], w)
+    is_h = np.flatnonzero(np.argmax(win_h, axis=1) == k) + k   # first maximum must be the centre
+    is_l = np.flatnonzero(np.argmin(win_l, axis=1) == k) + k
+    idx = df.index
+    swings: List[SwingPoint] = [SwingPoint(int(i), idx[i].to_pydatetime(), float(highs[i]), "H", int(i) + k) for i in is_h]
+    swings += [SwingPoint(int(i), idx[i].to_pydatetime(), float(lows[i]), "L", int(i) + k) for i in is_l]
     swings.sort(key=lambda s: (s.index, s.kind))
     return _alternate(swings)
 

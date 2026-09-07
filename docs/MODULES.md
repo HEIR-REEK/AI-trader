@@ -12,11 +12,13 @@ module: purpose, mechanics, entry points, tests, limitations. Everything lives i
 ```
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-python -m pytest tests -q                       # 73 tests
+python -m pytest tests -q                       # 93 tests
 python -m ai_trader.cli scenario textbook_long --candidates
 python -m ai_trader.cli scenario range_fade
 python -m ai_trader.cli scenario choppy
 python -m ai_trader.cli analyze XAUUSD --seed 3 --candidates
+python -m ai_trader.cli backtest XAUUSD --source scenario --resolve win --no-news-penalty --trades
+python -m ai_trader.cli backtest XAUUSD --source csv --data-dir data --walk-forward --json out.json
 ```
 
 ---
@@ -206,10 +208,105 @@ backtesting (Phase 7) before any parameter is trusted.
 
 ---
 
+## Phase 7 — Backtesting & validation
+
+**Files:** `backtest/simulator.py`, `backtest/engine.py`, `backtest/metrics.py`,
+`backtest/validation.py`, `backtest/report.py`; supporting changes in
+`data/scenarios.py` (`ScenarioConfig.resolve`), `decision/engine.py` (candidates carry
+geometry), `analysis/*` (vectorised indicators / swings, per-timeframe analysis cache).
+
+### What it does
+The backtester **replays the production `DecisionEngine` bar by bar** — there is no
+separate "backtest version" of any strategy, so nothing can drift between test and live.
+
+```
+for each closed entry-TF bar i (after warm-up):
+    BrokerSimulator.on_bar(bar i)           # fills / stops / targets for orders created before bar i
+    RiskManager.register_open/close(...)    # equity, daily & weekly loss, cool-downs, size reduction
+    if no position and no pending order:
+        load = loader.load(symbol, as_of = close time of bar i)      # closed bars only
+        assert every frame's last bar has CLOSED at as_of            # LookaheadError otherwise
+        decision = engine.decide(load)                                # the real pipeline
+        record every candidate (accepted AND rejected) with score / conflicts / geometry
+        if decision.is_trade: BrokerSimulator.submit(plan)            # earliest fill: bar i+1
+```
+
+* **`BrokerSimulator`** – conservative fill model: decisions on the close of bar *t*
+  can fill no earlier than bar *t+1*; limit orders fill on touch at the zone edge (or at
+  the open when price gaps into the zone) plus half the spread; market orders fill at the
+  next open + half spread + slippage (5 % ATR); when a bar touches both the stop and a
+  target the **stop is assumed first** unless the bar *opened* beyond the target; stops
+  slip 8 % ATR; a pending order is cancelled if its stop trades before it fills and
+  expires after `order_ttl_bars` (8); management is fixed and documented — ⅓ off at TP1
+  then stop → break-even (+costs), ⅓ at TP2 then stop → TP1, remainder at TP3 / stop,
+  time stop after `max_hold_bars` (96). Commission per lot per side is configurable.
+  Every `ClosedTrade` carries strategy, regime, score, grade, R multiple, MAE/MFE.
+* **`Backtester`** – snapshot of the provider (one fetch, served from memory), causal
+  loader, per-timeframe analysis cache (HTF frames are re-analysed only when a new bar
+  printed), one position per symbol, `RiskManager` in the loop (its kill-switches and
+  size reductions are *inside* the results), decision / block-reason / regime counters,
+  candidate log with `setup_id` clustering (the same setup re-proposed on consecutive
+  bars is one setup), hypothetical outcome of every candidate through an isolated
+  simulator, ≈ 0.09 s per decision.
+* **`metrics.py`** – win rate, profit factor, expectancy (R and currency), average
+  win/loss, realised payoff & break-even win rate, net P&L, costs, max drawdown (%, ccy,
+  R), Sharpe per trade + annualised, Sortino, t-stat, consecutive wins/losses, bars held,
+  MAE/MFE, exit-reason histogram; `metrics_by(trades, "regime" | "strategy" | "grade" |
+  "direction")`; `monte_carlo` (shuffle / bootstrap / block) → distribution of final R,
+  max drawdown, probability of a negative sequence and of a 20 R ruin.
+* **`validation.py`** – `threshold_table` (what the taken set would have earned at
+  min-score 50…90), `score_bucket_table`, `conflict_table` (does the MAJOR-conflict veto
+  earn its keep?), `select_threshold` (highest expectancy with ≥ N trades, otherwise the
+  configured default — never a number from thin data), `walk_forward_thresholds`
+  (anchored/rolling folds: threshold chosen on the train window, judged **only** on the
+  following test window, aggregate OOS stats, degradation ratio, fold stability),
+  `in_out_of_sample` (two independent portfolio replays either side of a date),
+  `overfit_report` (trades per free parameter, t-stat, walk-forward degradation, fold
+  stability, Monte Carlo tail, data source, look-ahead guard, survivorship note →
+  `NOT VALIDATED` / `INCONCLUSIVE` / `PASSES BASIC CHECKS`).
+* **CLI** – `python -m ai_trader.cli backtest SYMBOL --source scenario|synthetic|csv
+  [--resolve win|loss|flat] [--start --end --split DATE] [--walk-forward] [--trades]
+  [--spread --commission --ttl --max-hold --equity --every] [--json FILE]`.
+
+### How to test
+```
+python -m pytest tests/test_backtest.py -q                 # 20 tests, ~25 s
+python -m ai_trader.cli backtest XAUUSD --source scenario --resolve win  --no-news-penalty --trades
+python -m ai_trader.cli backtest XAUUSD --source scenario --resolve loss --no-news-penalty --trades
+python -m ai_trader.cli backtest XAUUSD --source synthetic --bars 800 --no-news-penalty --walk-forward
+# real data: put data/XAUUSD_15m.csv (ts,open,high,low,close,volume; UTC) and optionally _1h/_4h/_1d
+python -m ai_trader.cli backtest XAUUSD --source csv --split 2025-01-01 --walk-forward --json xau.json
+```
+Tests cover: no same-bar fills, limit fill on touch, full TP ladder & partial exits,
+stop-first in ambiguous bars, gap-through-target, break-even after TP1, order expiry /
+invalidation / gap-through-stop, market-order costs & commission, short mirror, time
+stop, MAE/MFE; metric arithmetic; Monte Carlo determinism; threshold tables, one-entry-
+per-setup counting, walk-forward never training on its test window; end-to-end scripted
+setups (win → TP3, loss → stop with the RiskManager booking the loss, short mirror); the
+look-ahead guard (a leaked unclosed bar raises `LookaheadError`) and a spy asserting the
+engine only ever sees closed bars; the overfit report flags thin synthetic evidence.
+
+### Limitations (read before trusting any number)
+* **No real historical data is bundled.** Everything run so far is on scripted /
+  synthetic paths, which validate *mechanics* (fills, management, accounting, causality)
+  and say nothing about edge. On random synthetic paths the engine takes essentially no
+  trades — that is the designed behaviour, not evidence of profitability.
+* Thresholds 70/80/90 remain **configurable defaults awaiting validation on real data**;
+  the walk-forward tooling exists but has nothing to validate on yet. It refuses to pick a
+  threshold from < 20 trades and falls back to the default.
+* The fill model is bar-based: intrabar path is unknown, so the stop-first rule is a
+  deliberate pessimism; real slippage in news spikes can exceed the modelled 8 % ATR.
+* One position per symbol, no portfolio-level correlation between symbols inside a run
+  (the RiskManager's correlation groups apply, but each `Backtester` replays one symbol).
+* Session/holiday calendars are approximations; synthetic indices are 24/7.
+* Speed ≈ 0.09 s per decision → ~1 year of M15 (≈ 25 k bars) ≈ 40 min single-threaded;
+  use `--every k` for coarse scans, then confirm at `--every 1`.
+
+---
+
 ## Roadmap (not yet implemented)
 
-Phase 7 backtesting (historical, walk-forward, out-of-sample, Monte Carlo, per-regime
-metrics, threshold validation) → Phase 8 ML advisors (regime / setup classifiers with
+Phase 8 ML advisors (regime / setup classifiers with
 purged CV, feature importance, explainability) → Phase 9 paper trading + persistence +
 FastAPI/WebSocket + React dashboard → Phase 10 broker adapters → Phase 11 live with
 kill-switches.

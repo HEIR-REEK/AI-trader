@@ -59,8 +59,11 @@ def closed_bars_as_of(df: pd.DataFrame, tf: Timeframe, as_of: datetime) -> pd.Da
     as_of_ts = pd.Timestamp(as_of)
     if as_of_ts.tzinfo is None:
         as_of_ts = as_of_ts.tz_localize("UTC")
-    closes = pd.Series([_bar_close_time(ts, tf) for ts in df.index], index=df.index)
-    return df[closes <= as_of_ts]
+    if tf in (Timeframe.W1, Timeframe.MN1):
+        closes = pd.Series([_bar_close_time(ts, tf) for ts in df.index], index=df.index)
+        return df[closes <= as_of_ts]
+    # regular bars: close = open + tf → keep bars opened at or before as_of - tf
+    return df[df.index <= as_of_ts - pd.Timedelta(minutes=tf.minutes)]
 
 
 def bar_close_time(open_ts: pd.Timestamp, tf: Timeframe) -> pd.Timestamp:

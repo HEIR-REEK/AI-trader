@@ -63,11 +63,13 @@ class VolumeAssessment:
         return {k: (v if not isinstance(v, float) else round(v, 5)) for k, v in self.__dict__.items()}
 
 
-def assess_volume(df: pd.DataFrame, direction: Optional[Direction] = None, bars: int = 3) -> VolumeAssessment:
+def assess_volume(df: pd.DataFrame, direction: Optional[Direction] = None, bars: int = 3,
+                  ind: Optional[pd.DataFrame] = None) -> VolumeAssessment:
     if "volume" not in df or df["volume"].tail(50).sum() <= 0 or df["volume"].tail(50).nunique() <= 2:
         return VolumeAssessment(available=False, notes=["no usable volume feed — weight redistributed"])
-    rv = relative_volume(df)
-    vz = volume_zscore(df)
+    reuse = ind is not None and len(ind) == len(df) and "rvol" in ind
+    rv = ind["rvol"] if reuse else relative_volume(df)
+    vz = ind["vol_z"] if reuse else volume_zscore(df)
     last_rv = float(rv.iloc[-1]) if not np.isnan(rv.iloc[-1]) else None
     last_vz = float(vz.iloc[-1]) if not np.isnan(vz.iloc[-1]) else None
     spike = bool(last_vz is not None and last_vz >= 2.0)
@@ -78,11 +80,11 @@ def assess_volume(df: pd.DataFrame, direction: Optional[Direction] = None, bars:
     confirms = None
     if direction is not None and (up_v + dn_v) > 0:
         confirms = (up_v > dn_v * 1.2) if direction is Direction.LONG else (dn_v > up_v * 1.2)
-    v = vwap(df, "D")
+    v = ind["vwap"] if reuse else vwap(df, "D")
     last_vwap = float(v.iloc[-1]) if not np.isnan(v.iloc[-1]) else None
     price = float(df["close"].iloc[-1])
     pv = None if last_vwap is None else ("above" if price > last_vwap else "below")
-    o = obv(df)
+    o = ind["obv"] if reuse else obv(df)
     obv_trend = None
     if len(o) > 20:
         slope = o.iloc[-1] - o.iloc[-20]

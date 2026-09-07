@@ -76,6 +76,9 @@ class MarketDataLoader:
             if df is None or len(df) == 0:
                 raise DataError(f"{symbol}: no data for {tf.value}")
             df = df.drop(columns=[c for c in df.columns if c == "label"])
+            if df.attrs:
+                df = df.copy(deep=False)
+                df.attrs = {}          # pandas deep-copies attrs on every op → measurable slowdown in analysis
             if as_of is not None:
                 df = closed_bars_as_of(df, tf, as_of)
             min_bars = self.settings.min_bars_override.get(tf, self.settings.min_bars.get(tf.group, 50))

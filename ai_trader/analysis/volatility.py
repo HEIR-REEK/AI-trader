@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from .indicators import atr, atr_percentile, bb_squeeze, bollinger, historical_volatility
+from .indicators import atr, atr_percentile, bb_squeeze, bollinger, historical_volatility, rolling_percentile_rank
 
 
 @dataclass
@@ -53,19 +53,24 @@ class VolatilityAssessment:
 
 
 def assess_volatility(df: pd.DataFrame, atr_period: int = 14, extreme_pct: float = 0.97, dead_pct: float = 0.05,
-                      lookback: Optional[int] = None) -> VolatilityAssessment:
+                      lookback: Optional[int] = None, ind: Optional[pd.DataFrame] = None) -> VolatilityAssessment:
+    """``ind`` (optional) is the frame from ``compute_indicator_frame`` — when supplied the
+    ATR / percentile / Bollinger / squeeze columns are reused instead of recomputed."""
     lookback = lookback or min(250, max(40, len(df) // 2))
-    a = atr(df, atr_period)
-    ap = atr_percentile(df, atr_period, lookback)
+    reuse = ind is not None and len(ind) == len(df) and "atr_percentile" in ind
+    a = ind["atr"] if reuse else atr(df, atr_period)
+    ap = ind["atr_percentile"] if reuse else atr_percentile(df, atr_period, lookback)
     last_atr = float(a.iloc[-1])
     price = float(df["close"].iloc[-1])
     pct = float(ap.iloc[-1]) if not np.isnan(ap.iloc[-1]) else 0.5
-    bb = bollinger(df["close"], 20)
-    bw = bb["bb_width"]
-    bw_pct_series = bw.rolling(min(120, max(30, len(df) // 3)), min_periods=20).apply(
-        lambda x: (x[:-1] < x[-1]).mean() if len(x) > 1 else np.nan, raw=True)
-    bw_pct = float(bw_pct_series.iloc[-1]) if not np.isnan(bw_pct_series.iloc[-1]) else 0.5
-    sq = bool(bb_squeeze(df).iloc[-1])
+    if reuse:
+        bw_pct_last = ind["bb_width_pct"].iloc[-1]
+        sq = bool(ind["squeeze"].iloc[-1])
+    else:
+        bb = bollinger(df["close"], 20)
+        bw_pct_last = rolling_percentile_rank(bb["bb_width"], min(120, max(30, len(df) // 3)), 20).iloc[-1]
+        sq = bool(bb_squeeze(df).iloc[-1])
+    bw_pct = float(bw_pct_last) if not np.isnan(bw_pct_last) else 0.5
     hv_s = historical_volatility(df["close"], 10)
     hv_l = historical_volatility(df["close"], 50)
     hv_ratio = float(hv_s.iloc[-1] / hv_l.iloc[-1]) if hv_l.iloc[-1] and not np.isnan(hv_l.iloc[-1]) and hv_l.iloc[-1] > 0 else 1.0

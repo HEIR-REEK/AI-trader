@@ -40,8 +40,12 @@ class DecisionEngine:
     def __init__(self, provider: DataProvider, settings: Optional[Settings] = None, calendar: Optional[EconomicCalendar] = None,
                  risk: Optional[RiskManager] = None, registry: Optional[StrategyRegistry] = None,
                  regime_detector: Optional[RegimeDetector] = None, macro_series: Optional[Dict[str, pd.Series]] = None,
-                 setup_model=None):
+                 setup_model=None, cache_analysis: bool = False):
         self.settings = settings or get_settings()
+        # per-symbol cache of per-timeframe analyses (used by the backtester: HTF frames that
+        # have not printed a new bar are not re-analysed — same result, far less work)
+        self.cache_analysis = cache_analysis
+        self._analysis_cache: Dict[str, Dict[Timeframe, tuple]] = {}
         self.provider = provider
         self.loader = MarketDataLoader(provider, self.settings.analysis)
         self.calendar = calendar or EconomicCalendar()
@@ -71,7 +75,7 @@ class DecisionEngine:
             return self._no_trade(inst, now, blocks, context=context)
 
         # 1) multi-timeframe context
-        ctx = build_context(load.data, inst, self.settings.analysis)
+        ctx = build_context(load.data, inst, self.settings.analysis, cache=self._analysis_cache.setdefault(inst.symbol, {}) if self.cache_analysis else None)
         context["mtf"] = ctx.summary()
 
         # 2) news / macro
@@ -150,7 +154,11 @@ class DecisionEngine:
                 candidates.append({"strategy": sig.strategy, "direction": sig.direction.value, "score": round(total, 1),
                                    "grade": grade.value, "rr_tp2": round(sig.rr(1), 2), "conflicts": conf.conflicts,
                                    "breakdown": conf.breakdown, "ml_probability": ml_p,
-                                   "rejected_because": rejected or "passed"})
+                                   "rejected_because": rejected or "passed",
+                                   # geometry (lets the backtester evaluate *rejected* candidates too → threshold validation)
+                                   "family": sig.family.value, "timeframe": sig.timeframe.value, "entry_type": sig.entry_type.value,
+                                   "entry_low": float(sig.entry_low), "entry_high": float(sig.entry_high), "stop": float(sig.stop),
+                                   "targets": [float(t) for t in sig.targets], "n_major": len(major), "n_minor": len(conf.minor_conflicts)})
                 if rejected is None:
                     scored.append((total, sig, conf, grade, ml_p))
         context["candidates"] = candidates

@@ -137,8 +137,8 @@ def analyze_timeframe(df: pd.DataFrame, tf: Timeframe, instrument: Optional[Inst
     trend_bias, strength = _trend_bias(ind, structure)
     hint = Direction.LONG if trend_bias is Bias.BUY else (Direction.SHORT if trend_bias is Bias.SELL else None)
     pats = recent_patterns(df, bars=3, trend_hint=hint)
-    vol = assess_volume(df, hint)
-    vola = assess_volatility(df, settings.atr_period, settings.extreme_volatility_atr_percentile, settings.dead_volatility_atr_percentile)
+    vol = assess_volume(df, hint, ind=ind)
+    vola = assess_volatility(df, settings.atr_period, settings.extreme_volatility_atr_percentile, settings.dead_volatility_atr_percentile, ind=ind)
     return TimeframeAnalysis(tf, df, ind, structure, lv, smc, pats, vol, vola, trend_bias, strength)
 
 
@@ -202,8 +202,21 @@ class MultiTimeframeContext:
         }
 
 
+def _frame_key(df: pd.DataFrame, extra: Optional[Dict[str, float]]) -> tuple:
+    return (len(df), int(df.index[0].value), int(df.index[-1].value), float(df["close"].iloc[-1]), float(df["high"].iloc[-1]),
+            float(df["low"].iloc[-1]), tuple(sorted((k, round(v, 10)) for k, v in (extra or {}).items())))
+
+
 def build_context(md: MarketData, instrument: Optional[Instrument] = None,
-                  settings: Optional[AnalysisSettings] = None) -> MultiTimeframeContext:
+                  settings: Optional[AnalysisSettings] = None,
+                  cache: Optional[Dict[Timeframe, tuple]] = None) -> MultiTimeframeContext:
+    """Analyse every loaded timeframe and combine them.
+
+    ``cache`` (optional, owned by the caller — e.g. the backtester) maps timeframe →
+    (frame_key, TimeframeAnalysis). Analysis is a pure function of the frame, so when
+    a higher timeframe has not printed a new bar since the previous call its analysis
+    is reused verbatim. This changes nothing in the result, only the run time.
+    """
     settings = settings or get_settings().analysis
     daily = md.frames.get(Timeframe.D1)
     weekly = md.frames.get(Timeframe.W1)
@@ -211,7 +224,17 @@ def build_context(md: MarketData, instrument: Optional[Instrument] = None,
     analyses: Dict[Timeframe, TimeframeAnalysis] = {}
     for tf in md.timeframes:
         extra = {k: v for k, v in key_levels.items() if k in ("pdh", "pdl", "pwh", "pwl")} if tf.group != "HIGH" else None
-        analyses[tf] = analyze_timeframe(md.frames[tf], tf, instrument, settings, extra)
+        frame = md.frames[tf]
+        if cache is not None:
+            key = _frame_key(frame, extra)
+            hit = cache.get(tf)
+            if hit is not None and hit[0] == key:
+                analyses[tf] = hit[1]
+                continue
+            analyses[tf] = analyze_timeframe(frame, tf, instrument, settings, extra)
+            cache[tf] = (key, analyses[tf])
+        else:
+            analyses[tf] = analyze_timeframe(frame, tf, instrument, settings, extra)
 
     def _combine(tfs: List[Timeframe]) -> tuple[Bias, float]:
         present = [analyses[t] for t in tfs if t in analyses]

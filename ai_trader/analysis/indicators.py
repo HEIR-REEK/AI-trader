@@ -43,17 +43,67 @@ def rma(s: pd.Series, period: int) -> pd.Series:
 # Volatility
 # --------------------------------------------------------------------------
 def true_range(df: pd.DataFrame) -> pd.Series:
-    prev_close = df["close"].shift(1)
-    tr = pd.concat([
-        df["high"] - df["low"],
-        (df["high"] - prev_close).abs(),
-        (df["low"] - prev_close).abs(),
-    ], axis=1).max(axis=1)
-    return tr
+    h = df["high"].to_numpy(dtype=float)
+    l = df["low"].to_numpy(dtype=float)
+    c = df["close"].to_numpy(dtype=float)
+    pc = np.empty_like(c)
+    pc[0] = np.nan
+    pc[1:] = c[:-1]
+    tr = np.maximum(h - l, np.maximum(np.abs(h - pc), np.abs(l - pc)))
+    tr[0] = h[0] - l[0]
+    return pd.Series(tr, index=df.index)
+
+
+# ATR is requested by many analysis modules for the same frame; memoise the last few
+# frames (identity + shape + last timestamp/close guard against stale hits).
+_ATR_CACHE: Dict[tuple, tuple] = {}
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    return rma(true_range(df), period)
+    n = len(df)
+    key = (id(df), n, period, int(df.index[-1].value) if n else 0, float(df["close"].iloc[-1]) if n else 0.0)
+    hit = _ATR_CACHE.get(key)
+    if hit is not None and hit[0] is df:
+        return hit[1]
+    s = rma(true_range(df), period)
+    if len(_ATR_CACHE) > 48:
+        _ATR_CACHE.clear()
+    _ATR_CACHE[key] = (df, s)
+    return s
+
+
+def rolling_percentile_rank(s: pd.Series, lookback: int, min_periods: int) -> pd.Series:
+    """Fraction of the previous window values strictly below the current value.
+
+    Exact vectorised equivalent of
+    ``s.rolling(lookback, min_periods).apply(lambda x: (x[:-1] < x[-1]).mean(), raw=True)``
+    (NaN comparisons count as "not below", a window needs ``min_periods`` non-NaN
+    observations, single-element windows are NaN).
+    """
+    from numpy.lib.stride_tricks import sliding_window_view
+    x = s.to_numpy(dtype=float)
+    n = len(x)
+    out = np.full(n, np.nan)
+    if n == 0:
+        return pd.Series(out, index=s.index)
+    w = min(lookback, n)
+    if w >= 2:
+        win = sliding_window_view(x, w)                    # windows ending at i = w-1 .. n-1
+        cur = win[:, -1:]
+        with np.errstate(invalid="ignore"):
+            cnt = np.sum(win[:, :-1] < cur, axis=1)
+        valid = np.sum(~np.isnan(win), axis=1)
+        vals = cnt / (w - 1)
+        vals[valid < min_periods] = np.nan
+        out[w - 1:] = vals
+    # partial windows at the start (fewer than `lookback` elements)
+    for i in range(1, min(w - 1, n)):
+        window = x[:i + 1]
+        if np.sum(~np.isnan(window)) < min_periods:
+            continue
+        with np.errstate(invalid="ignore"):
+            out[i] = float(np.mean(window[:-1] < window[-1]))
+    return pd.Series(out, index=s.index)
 
 
 def atr_percentile(df: pd.DataFrame, period: int = 14, lookback: int = 250) -> pd.Series:
@@ -63,8 +113,7 @@ def atr_percentile(df: pd.DataFrame, period: int = 14, lookback: int = 250) -> p
     ATR grows with the price level.
     """
     a = atr(df, period) / df["close"]
-    return a.rolling(lookback, min_periods=max(20, lookback // 5)).apply(
-        lambda x: (x[:-1] < x[-1]).mean() if len(x) > 1 else np.nan, raw=True)
+    return rolling_percentile_rank(a, lookback, max(20, lookback // 5))
 
 
 def bollinger(s: pd.Series, period: int = 20, std: float = 2.0) -> pd.DataFrame:
@@ -325,8 +374,7 @@ def compute_indicator_frame(df: pd.DataFrame, atr_period: int = 14, adx_period: 
     out[["adx", "plus_di", "minus_di"]] = a
     b = bollinger(c, 20)
     out[["bb_mid", "bb_upper", "bb_lower", "bb_width", "bb_pct"]] = b
-    out["bb_width_pct"] = out["bb_width"].rolling(min(120, max(30, len(out) // 3)), min_periods=20).apply(
-        lambda x: (x[:-1] < x[-1]).mean() if len(x) > 1 else np.nan, raw=True)
+    out["bb_width_pct"] = rolling_percentile_rank(out["bb_width"], min(120, max(30, len(out) // 3)), 20)
     out["squeeze"] = bb_squeeze(out)
     out["er"] = efficiency_ratio(c, 20)
     out["ema50_slope"] = ema_slope(c, 50, 10, out["atr"])
