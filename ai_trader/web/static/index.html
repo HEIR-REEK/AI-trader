@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Trader — Browser Trading System</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">AT</div>
+      <div>
+        <div class="brand-name">AI-Trader</div>
+        <div class="brand-sub">Browser System</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn active" data-view="analyze">
+        <span class="nav-ico">◈</span><span>Analyze</span>
+      </button>
+      <button class="nav-btn" data-view="scenarios">
+        <span class="nav-ico">▦</span><span>Scenarios</span>
+      </button>
+      <button class="nav-btn" data-view="backtest">
+        <span class="nav-ico">↺</span><span>Backtest</span>
+      </button>
+      <button class="nav-btn" data-view="instruments">
+        <span class="nav-ico">☰</span><span>Instruments</span>
+      </button>
+      <button class="nav-btn" data-view="settings">
+        <span class="nav-ico">⚙</span><span>Settings</span>
+      </button>
+    </nav>
+    <div class="side-foot">
+      <div class="health" id="health-pill"><span class="dot pulse"></span><span>Connecting…</span></div>
+      <div class="ver">v1.0 · <a href="/api/docs" target="_blank" rel="noopener">API docs</a></div>
+    </div>
+    <button class="side-toggle" id="side-toggle" title="Collapse sidebar">‹</button>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menu-btn" title="Menu">☰</button>
+      <div>
+        <h1 id="view-title">Analyze</h1>
+        <p class="view-sub" id="view-sub">Run the full decision engine on any instrument.</p>
+      </div>
+      <div class="top-actions">
+        <span class="pill warn">Decision support only — no trade is guaranteed</span>
+      </div>
+    </header>
+
+    <!-- ======== ANALYZE ======== -->
+    <section class="view active" id="view-analyze">
+      <div class="card form-card">
+        <h2>Market Analysis</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label for="an-symbol">Symbol</label>
+            <input id="an-symbol" list="symbol-list" value="XAUUSD" spellcheck="false" autocomplete="off" placeholder="XAUUSD">
+            <datalist id="symbol-list"></datalist>
+          </div>
+          <div class="field">
+            <label for="an-source">Data source</label>
+            <select id="an-source">
+              <option value="synthetic">Synthetic (mechanics demo)</option>
+              <option value="csv">CSV files (data/ folder)</option>
+              <option value="twelvedata">TwelveData (live, needs API key)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="an-seed">Seed</label>
+            <input id="an-seed" type="number" value="1" min="0" max="10000000">
+          </div>
+          <div class="field">
+            <label>Timeframes</label>
+            <div class="tf-pills" id="an-tfs"></div>
+          </div>
+          <div class="field check-row">
+            <label class="check"><input type="checkbox" id="an-nonews"> <span>Calendar checked &amp; empty <small>(no news penalty)</small></span></label>
+          </div>
+          <div class="field btn-row">
+            <button class="btn primary" id="an-run">▶&nbsp; Run Analysis</button>
+          </div>
+        </div>
+        <p class="hint" id="an-hint">Synthetic data proves the plumbing, never the edge. For real analysis use CSV history or TwelveData.</p>
+      </div>
+      <div id="an-result"></div>
+    </section>
+
+    <!-- ======== SCENARIOS ======== -->
+    <section class="view" id="view-scenarios">
+      <div class="card">
+        <h2>Scripted Scenarios</h2>
+        <p class="muted">Deterministic markets that exercise the TRADE and NO&nbsp;TRADE paths. Switch components off to see what breaks a setup.</p>
+        <div class="scn-grid" id="scn-grid"></div>
+        <div class="form-grid scn-controls">
+          <div class="field">
+            <label>Switch off components</label>
+            <div class="tf-pills" id="scn-toggles"></div>
+          </div>
+          <div class="field">
+            <label for="scn-seed">Seed</label>
+            <input id="scn-seed" type="number" value="1" min="0" max="10000000">
+          </div>
+          <div class="field btn-row">
+            <button class="btn primary" id="scn-run">▶&nbsp; Run Scenario</button>
+          </div>
+        </div>
+      </div>
+      <div id="scn-result"></div>
+    </section>
+
+    <!-- ======== BACKTEST ======== -->
+    <section class="view" id="view-backtest">
+      <div class="card form-card">
+        <h2>Backtest</h2>
+        <div class="form-grid">
+          <div class="field">
+            <label for="bt-symbol">Symbol</label>
+            <input id="bt-symbol" list="symbol-list" value="XAUUSD" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="bt-source">Data source</label>
+            <select id="bt-source">
+              <option value="scenario">Scenario (scripted setup)</option>
+              <option value="synthetic">Synthetic (random path)</option>
+              <option value="csv">CSV files (data/ folder)</option>
+            </select>
+          </div>
+          <div class="field bt-only-scenario">
+            <label for="bt-direction">Direction</label>
+            <select id="bt-direction"><option value="long">long</option><option value="short">short</option></select>
+          </div>
+          <div class="field bt-only-scenario">
+            <label for="bt-resolve">Resolve</label>
+            <select id="bt-resolve"><option value="win">win</option><option value="loss">loss</option><option value="flat">flat</option></select>
+          </div>
+          <div class="field bt-only-synthetic">
+            <label for="bt-bars">Bars</label>
+            <input id="bt-bars" type="number" value="600" min="50" max="20000" step="50">
+          </div>
+          <div class="field">
+            <label for="bt-seed">Seed</label>
+            <input id="bt-seed" type="number" value="1" min="0" max="10000000">
+          </div>
+          <div class="field">
+            <label>Timeframes</label>
+            <div class="tf-pills" id="bt-tfs"></div>
+          </div>
+          <div class="field">
+            <label for="bt-every">Decide every N bars</label>
+            <input id="bt-every" type="number" value="1" min="1" max="500">
+          </div>
+          <div class="field">
+            <label for="bt-equity">Start equity</label>
+            <input id="bt-equity" type="number" value="" min="100" placeholder="default 10 000">
+          </div>
+          <div class="field">
+            <label for="bt-commission">Commission / lot / side</label>
+            <input id="bt-commission" type="number" value="0" min="0" step="0.5">
+          </div>
+          <div class="field">
+            <label for="bt-split">IS / OOS split (optional)</label>
+            <input id="bt-split" type="text" placeholder="2025-01-01">
+          </div>
+          <div class="field check-row">
+            <label class="check"><input type="checkbox" id="bt-wf"> <span>Walk-forward thresholds</span></label>
+            <label class="check"><input type="checkbox" id="bt-nonews"> <span>Calendar checked &amp; empty</span></label>
+          </div>
+          <div class="field btn-row">
+            <button class="btn primary" id="bt-run">▶&nbsp; Start Backtest</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="bt-jobs-card">
+        <h2>Jobs</h2>
+        <div id="bt-jobs"><p class="muted">No backtests yet.</p></div>
+      </div>
+      <div id="bt-result"></div>
+    </section>
+
+    <!-- ======== INSTRUMENTS ======== -->
+    <section class="view" id="view-instruments">
+      <div class="card">
+        <h2>Instruments <span class="count" id="inst-count"></span></h2>
+        <div class="form-grid">
+          <div class="field"><label for="inst-search">Search</label><input id="inst-search" placeholder="gold, EUR, BTC…" autocomplete="off"></div>
+          <div class="field"><label for="inst-class">Asset class</label><select id="inst-class"><option value="">All</option></select></div>
+        </div>
+        <div class="table-wrap"><table class="tbl" id="inst-table">
+          <thead><tr><th>Symbol</th><th>Name</th><th>Class</th><th>Digits</th><th>Lot size</th><th>Min lot</th><th>Spread</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- ======== SETTINGS ======== -->
+    <section class="view" id="view-settings">
+      <div id="settings-wrap"><p class="muted">Loading…</p></div>
+    </section>
+
+    <footer class="foot">
+      AI-Trader · Probabilistic decision support only. No trade is guaranteed. Position size so the stated stop loss is an acceptable loss, and never widen a stop.
+    </footer>
+  </main>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/chart.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

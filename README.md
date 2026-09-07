@@ -1,46 +1,60 @@
-# AI-Trader — Production System
+# AI-Trader — Browser Trading System
 
-A structured forex market analysis system with production-grade infrastructure.
+A structured forex / metals / crypto / indices market analysis system with a
+**browser interface**. No terminal needed — start the server, open the website,
+click to analyze.
 
-**IMPORTANT: This is a structured decision-support framework — NOT a guaranteed trade predictor.**
+**IMPORTANT: This is a structured decision-support framework — NOT a guaranteed
+trade predictor.**
 
-## Production Status
-
-- **No simulated fallbacks**: All data sources require real API keys (`EXCHANGE_API_KEY`, `NEWS_API_KEY`, `VIX_API_KEY`). Missing keys cause explicit failures, not fake data.
-- **Persistent database**: All analyses saved to `data/trader.db` via SQLite.
-- **Continuous service**: `production_server.py` runs analysis cycles at configured intervals.
-- **Audit logging**: All operations logged to `logs/production.log`.
-
-## Architecture
-
-- `src/realtime_feeds.py` — Live market/news/volatility feeds (production APIs only)
-- `src/indicators.py` — Technical indicator framework (requires OHLC feeds)
-- `src/strategies.py` — 5 strategy frameworks (trend, mean-reversion, breakout, momentum, SR)
-- `src/volatility.py` — Volatility indices (10 / 10.1 derived) with live feeds
-- `src/news_sentiment.py` — Real-time sentiment analysis
-- `src/master_engine.py` — Master signal engine combining all layers
-- `src/production_db.py` — Persistent SQLite storage
-- `src/production_server.py` — Continuous production service
-- `run_production.py` — Production entry point
-- `dashboard/index.html` — Structured analysis dashboard
-
-## Requirements
+## Quickstart (browser)
 
 ```bash
-# Set real API keys
-export EXCHANGE_API_KEY="your_key"
-export NEWS_API_KEY="your_key"
-export VIX_API_KEY="your_key"
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run production service
-PYTHONPATH=src python run_production.py
+python run_web.py
 ```
 
-## Reality Check
+Then open **http://localhost:8000** in your browser.
 
-Even with full production infrastructure — live feeds, persistent storage, continuous monitoring — this system provides **structured analysis points**, not guaranteed winning trades. Markets are driven by unpredictable events, liquidity gaps, and sentiment shifts that no framework can fully model.
+| Page | What it does |
+|------|--------------|
+| **Analyze** | Pick a symbol + data source → full engine verdict (TRADE / NO TRADE), price chart with entry/SL/TP, score breakdown, candidates, explanation |
+| **Scenarios** | Scripted textbook markets (long / short / range fade / choppy) with switchable setup components |
+| **Backtest** | Replay history as background jobs with live progress, equity curve, trades, walk-forward & overfit reports |
+| **Instruments** | Searchable list of all 28 supported instruments |
+| **Settings** | Live engine config: thresholds, scoring weights, risk limits, regime map |
+
+API docs (optional, for integrations): http://localhost:8000/api/docs
+
+## Data sources
+
+| Source | Needs | Notes |
+|--------|-------|-------|
+| `synthetic` | nothing | Random regime-based price paths. Proves the *plumbing*, never the edge. Default. |
+| `csv` | `data/{SYMBOL}_{tf}.csv` files | Real history. Only the entry timeframe file is required (e.g. `XAUUSD_15m.csv`); higher timeframes resample automatically. |
+| `twelvedata` | `AITRADER_TWELVEDATA_API_KEY` | Live market data via the TwelveData API. |
+
+Set keys in the environment or a `.env` file (see `.env.example`).
+
+## Project layout
+
+- `run_web.py` — **start here**: launches the browser system (same as `python -m ai_trader.web`)
+- `ai_trader/web/` — browser backend (FastAPI) + self-contained UI (no build step, no CDN needed)
+  - `app.py` — HTTP routes, `service.py` — engine orchestration,
+    `jobs.py` — background backtests, `static/` — the website (HTML/CSS/JS)
+- `ai_trader/` — analysis engine: data, indicators, structure/SMC/ICT, regime,
+  strategies, confluence scoring, risk, backtester
+- `ai_trader/cli.py` — terminal interface (advanced / scripting use; the browser
+  covers the same commands: analyze, scenario, backtest, instruments)
+- `src/` — legacy prototype modules (kept for reference)
+- `tests/` — 144 tests including `test_web_api.py` for the browser backend
+
+## Reality check
+
+Even with full infrastructure — multi-strategy frameworks, volatility analysis,
+multi-timeframe confluence, backtests — this system provides **structured
+analysis points**, not guaranteed winning trades. Markets are driven by
+unpredictable events, liquidity gaps, and sentiment shifts that no framework can
+fully model.
 
 Always manage risk independently. Never trade based solely on automated analysis.
