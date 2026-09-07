@@ -6,3 +6,9 @@ node_modules/
 dist/
 build/
 .env
+# ai_trader runtime artefacts
+data/*.db
+data/cache/
+logs/
+.pytest_cache/
+.ruff_cache/
