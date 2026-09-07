@@ -6,7 +6,10 @@ DataFrames** with columns ``open, high, low, close, volume``. Providers never
 interpret price; they only fetch/generate and normalise.
 
 Providers:
-  * CSVProvider        – local files ``{data_dir}/{SYMBOL}_{tf}.csv``
+  * CSVProvider        – local files ``{data_dir}/{SYMBOL}_{tf}.csv``; accepts
+                         comma/tab/semicolon/pipe delimiters, MT4/MT5-style
+                         ``<OPEN>`` headers, split DATE+TIME columns, epoch
+                         timestamps and common OHLCV aliases
   * SyntheticProvider  – regime-labelled synthetic paths (tests, demos, stress)
   * TwelveDataProvider – REST provider (needs AITRADER_TWELVEDATA_API_KEY)
   * CompositeProvider  – tries providers in order (e.g. csv → twelvedata)
@@ -14,6 +17,8 @@ Providers:
 from __future__ import annotations
 
 import os
+import re
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Protocol, Sequence
@@ -37,23 +42,189 @@ class DataProvider(Protocol):
     def available(self) -> bool: ...
 
 
+# ---------------------------------------------------------------------------
+# CSV parsing helpers — broker exports come in many dialects (MT4/MT5 angle
+# brackets + tab/semicolon separators, OANDA single-letter OHLC, epoch
+# timestamps, split date/time columns, ...). All of that is normalised here so
+# the rest of the engine only ever sees clean UTC OHLCV frames.
+# ---------------------------------------------------------------------------
+
+_DELIMITERS = (",", "\t", ";", "|")  # detection priority order
+
+# Timestamp candidates in preference order. Bar-OPEN flavours come first (the
+# engine labels bars by open time); CLOSE flavours are a last resort.
+_TS_PRIORITY = [
+    "open_time", "opentime", "time_open", "start_time", "starttime",
+    "ts", "timestamp", "datetime", "date_time", "bar_time", "bartime",
+    "date", "time", "epoch",
+    "close_time", "closetime", "time_close", "end_time", "endtime",
+]
+_TS_ALIASES = set(_TS_PRIORITY) | {
+    "datetime_utc", "date_utc", "time_utc", "timestamp_utc", "open_time_utc",
+}
+
+_OHLCV_ALIASES = {
+    "open": {"open", "o", "open_price", "opening"},
+    "high": {"high", "h", "high_price", "highest"},
+    "low": {"low", "l", "low_price", "lowest"},
+    "close": {"close", "c", "close_price", "closing", "settle", "settlement",
+              "adj_close", "adjclose", "adjusted_close"},
+    "volume": {"volume", "vol", "tickvol", "tick_vol", "tickvolume", "tick_volume",
+               "real_volume", "realvolume", "base_volume", "basevolume",
+               "contracts", "qty", "quantity", "ticks"},
+}
+
+
+def _clean_column(name: object) -> str:
+    s = str(name).strip().lower().replace("<", "").replace(">", "")  # MT4/MT5 <OPEN>
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"[^0-9a-z_]", "", s)
+    return re.sub(r"_+", "_", s).strip("_")
+
+
+def _detect_delimiter(path: str) -> str:
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as fh:
+            sample = "".join(fh.readline() for _ in range(5))
+    except OSError as e:
+        raise DataError(f"cannot read {path}: {e}") from e
+    if not sample.strip():
+        raise DataError(f"{path} is empty")
+    counts = {d: sample.count(d) for d in _DELIMITERS}
+    best = max(_DELIMITERS, key=lambda d: counts[d])  # ties → priority order
+    if counts[best] == 0:
+        raise DataError(f"{path}: no delimiter found (expected one of comma/tab/semicolon/pipe)")
+    return best
+
+
+def read_csv_smart(path: str) -> pd.DataFrame:
+    """Read a broker CSV regardless of delimiter/encoding quirks.
+
+    Handles comma/tab/semicolon/pipe separators and a UTF-8 BOM. Raises
+    ``DataError`` (never a raw pandas error) on empty/unreadable files.
+    """
+    sep = _detect_delimiter(path)
+    try:
+        return pd.read_csv(path, sep=sep, encoding="utf-8-sig", skipinitialspace=True)
+    except pd.errors.EmptyDataError as e:
+        raise DataError(f"{path} is empty") from e
+    except Exception as e:  # ParserError, UnicodeDecodeError, ...
+        raise DataError(f"{path}: cannot parse CSV ({e})") from e
+
+
+def _coerce_numeric_ts(vals: pd.Series) -> pd.Series:
+    """Epoch numbers (s/ms/us/ns by magnitude) or YYYYMMDD integers → UTC."""
+    ref = vals.dropna()
+    if len(ref) == 0:
+        raise DataError("timestamp column has no valid values")
+    if bool(((ref % 1 == 0) & ref.between(19000101, 21001231)).all()):
+        s = vals.astype("Int64").astype(str).where(vals.notna())
+        return pd.to_datetime(s, format="%Y%m%d", utc=True, errors="coerce")
+    mag = float(ref.abs().max())
+    unit = "s" if mag < 1e11 else "ms" if mag < 1e14 else "us" if mag < 1e17 else "ns"
+    return pd.to_datetime(vals, unit=unit, utc=True)
+
+
+def _coerce_ts(series: pd.Series) -> pd.Series:
+    """Parse a timestamp column: ISO strings, epoch numbers (s/ms/us/ns) or
+    YYYYMMDD integers. Naive values are assumed UTC; aware ones converted."""
+    s = series
+    if pd.api.types.is_numeric_dtype(s.dtype) and not pd.api.types.is_datetime64_any_dtype(s.dtype):
+        return _coerce_numeric_ts(pd.to_numeric(s, errors="coerce"))
+    if pd.api.types.is_string_dtype(s.dtype) or s.dtype == object:
+        non_null = s[s.notna()]
+        if len(non_null) and non_null.astype(str).str.strip().str.fullmatch(r"[+-]?\d+(?:\.\d+)?").all():
+            return _coerce_numeric_ts(pd.to_numeric(s, errors="coerce"))
+    try:
+        return pd.to_datetime(s, utc=True)
+    except Exception:
+        pass
+    parsed = pd.to_datetime(s, utc=True, format="mixed", errors="coerce")
+    if parsed.isna().all():
+        raise DataError("cannot parse timestamps (no values understood; expected ISO datetimes or epoch numbers)")
+    n_bad = int((parsed.isna() & s.notna()).sum())
+    if n_bad:
+        warnings.warn(f"dropping {n_bad} row(s) with unparseable timestamps")
+    return parsed
+
+
+def _combine_date_time(date_col: pd.Series, time_col: pd.Series) -> pd.Series:
+    """Merge split DATE + TIME columns (MT4/MT5 style) into UTC timestamps."""
+    d = date_col.astype(str).str.strip()
+    t = time_col.astype(str).str.strip()
+    if bool(d.str.fullmatch(r"\d{8}").all()) and bool(t.str.fullmatch(r"\d{6}").all()):
+        return pd.to_datetime(d + " " + t, format="%Y%m%d %H%M%S", utc=True, errors="coerce")
+    if bool(d.str.fullmatch(r"\d{8}").all()):
+        base = pd.to_datetime(d, format="%Y%m%d", utc=True, errors="coerce")
+        try:
+            delta = pd.to_timedelta(t, errors="coerce")
+        except Exception:
+            delta = pd.Series(pd.NaT, index=t.index)
+        return base + delta
+    mask = date_col.notna() & time_col.notna()
+    combined = pd.Series(pd.NA, index=date_col.index, dtype="string")
+    combined[mask] = d[mask] + " " + t[mask]
+    return _coerce_ts(combined)
+
+
 def normalise_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
-    """Lower-case columns, enforce dtypes, UTC index, drop NaN rows."""
+    """Map broker aliases, enforce dtypes, UTC index, drop NaN rows.
+
+    Accepts MT4/MT5-style headers (``<OPEN>`` ...), split ``DATE``+``TIME``
+    columns, epoch timestamps and common OHLCV aliases. The result is sorted
+    ascending with duplicate timestamps removed (keep last).
+    """
+    if df is None or len(df) == 0:
+        raise DataError("OHLCV frame is empty")
     out = df.copy()
-    out.columns = [str(c).lower().strip() for c in out.columns]
-    rename = {"time": "ts", "timestamp": "ts", "date": "ts", "datetime": "ts", "vol": "volume"}
+    out.columns = [_clean_column(c) for c in out.columns]
+    out = out.loc[:, ~out.columns.duplicated(keep="first")]
+    cols = set(out.columns)
+
+    if "date" in cols and "time" in cols and not (cols & (_TS_ALIASES - {"date", "time"})):
+        # split DATE + TIME with no combined alternative → merge them
+        ts = _combine_date_time(out["date"], out["time"])
+        out = out.drop(columns=["date", "time"])
+    else:
+        ts_col = next((c for c in _TS_PRIORITY if c in cols), None)
+        if ts_col is None:
+            if isinstance(out.index, pd.DatetimeIndex):
+                ts = pd.Series(out.index, index=out.index)
+            else:
+                raise DataError(
+                    "no timestamp column found (looked for "
+                    + ", ".join(_TS_PRIORITY[:8]) + f", ...); have: {sorted(cols)}"
+                )
+        else:
+            ts = out[ts_col]
+            out = out.drop(columns=[ts_col])
+        ts = _coerce_ts(ts)
+
+    out["_ts"] = ts.to_numpy()
+    out = out.dropna(subset=["_ts"]).set_index("_ts")
+    out.index.name = "ts"
+    if len(out) == 0:
+        raise DataError("no rows with valid timestamps")
+
+    rename = {}
+    for canon, aliases in _OHLCV_ALIASES.items():
+        hit = next((c for c in out.columns if c in aliases), None)
+        if hit is not None:
+            rename[hit] = canon
     out = out.rename(columns=rename)
-    if "ts" in out.columns:
-        out["ts"] = pd.to_datetime(out["ts"], utc=True)
-        out = out.set_index("ts")
     if "volume" not in out.columns:
         out["volume"] = 0.0
     missing = [c for c in OHLCV_COLUMNS if c not in out.columns]
     if missing:
-        raise DataError(f"OHLCV frame missing columns: {missing}")
-    out = out[OHLCV_COLUMNS].astype(float)
+        raise DataError(f"OHLCV frame missing columns: {missing} (have: {sorted(set(out.columns))})")
+    try:
+        out = out[OHLCV_COLUMNS].astype(float)
+    except (ValueError, TypeError) as e:
+        raise DataError(f"non-numeric OHLCV values ({e})") from e
     out = ensure_utc_index(out)
     out = out.dropna(subset=["open", "high", "low", "close"])
+    if len(out) == 0:
+        raise DataError("no valid OHLCV rows after cleaning")
     out.index.name = "ts"
     return out
 
@@ -72,12 +243,27 @@ class CSVProvider:
     def available(self) -> bool:
         return os.path.isdir(self.data_dir)
 
+    def existing(self, symbol: str, timeframes: Sequence[Timeframe]) -> Dict[Timeframe, str]:
+        """Subset of ``timeframes`` that have a CSV file, mapped to their path."""
+        found: Dict[Timeframe, str] = {}
+        for tf in timeframes:
+            p = self.path_for(symbol, tf)
+            if os.path.exists(p):
+                found[tf] = p
+        return found
+
     def get_ohlcv(self, symbol: str, timeframe: Timeframe, limit: int = 1000,
                   end: Optional[datetime] = None) -> pd.DataFrame:
         path = self.path_for(symbol, timeframe)
         if not os.path.exists(path):
-            raise ProviderError(f"CSV not found: {path}")
-        df = normalise_ohlcv(pd.read_csv(path))
+            raise ProviderError(
+                f"CSV not found: {path} "
+                f"(expected file {symbol.upper()}_{timeframe.value}.csv in {self.data_dir!r})"
+            )
+        try:
+            df = normalise_ohlcv(read_csv_smart(path))
+        except DataError as e:
+            raise DataError(f"{path}: {e}") from e
         if end is not None:
             e = pd.Timestamp(end)
             e = e.tz_localize("UTC") if e.tzinfo is None else e.tz_convert("UTC")
