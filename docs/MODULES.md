@@ -275,6 +275,8 @@ python -m ai_trader.cli backtest XAUUSD --source scenario --resolve win  --no-ne
 python -m ai_trader.cli backtest XAUUSD --source scenario --resolve loss --no-news-penalty --trades
 python -m ai_trader.cli backtest XAUUSD --source synthetic --bars 800 --no-news-penalty --walk-forward
 # real data: put data/XAUUSD_15m.csv (ts,open,high,low,close,volume; UTC) and optionally _1h/_4h/_1d
+# accepted dialects: comma/tab/semicolon/pipe separators, MT4/MT5 <OPEN> headers, split
+# DATE+TIME columns, epoch timestamps (s/ms/us/ns), o/h/l/c + TickVol aliases
 python -m ai_trader.cli backtest XAUUSD --source csv --split 2025-01-01 --walk-forward --json xau.json
 ```
 Tests cover: no same-bar fills, limit fill on touch, full TP ladder & partial exits,
