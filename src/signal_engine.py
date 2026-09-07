@@ -23,7 +23,7 @@ class TradeSignalEngine:
         """Generate an analysis summary for a forex pair."""
         base, quote = pair.split("/") if "/" in pair else ("USD", "EUR")
 
-        rate = self.market.get_pair_rate(pair)
+        rate = self.market.get_pair_rate(base, quote)
         tech = self.market.get_technical_score(pair)
         news_items = self.news.fetch_news(query=f"forex {pair}")
         sentiment = self.news.aggregate_sentiment(news_items)

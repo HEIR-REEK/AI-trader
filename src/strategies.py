@@ -40,10 +40,14 @@ class MultiStrategyEngine:
 
         # Score logic (illustrative framework)
         score = 0.0
-        adx_val = adx.get("adx_estimate")
-        if adx_val is not None and adx_val > 25:
+        if multi_tf["alignment"] == "aligned_up":
+            score += 0.35
+        elif multi_tf["alignment"] == "mixed":
+            score += 0.1
+
+        if adx["adx_estimate"] > 25:
             score += 0.25
-        elif adx_val is not None and adx_val > 20:
+        elif adx["adx_estimate"] > 20:
             score += 0.15
 
         if vol_regime in ["moderate_volatility", "high_volatility"]:
@@ -73,12 +77,11 @@ class MultiStrategyEngine:
         vol_breakout = self.vol.volatility_breakout_signal(pair)
         multi_tf = self.tech.multi_timeframe_snapshot(pair)
 
-        rsi_val = rsi.get("rsi")
         score = 0.0
         # RSI near extremes supports mean-reversion
-        if rsi_val is not None and rsi_val > 65:
+        if rsi["rsi_estimate"] > 65:
             score += 0.3  # Overbought potential sell
-        elif rsi_val is not None and rsi_val < 35:
+        elif rsi["rsi_estimate"] < 35:
             score += 0.3  # Oversold potential buy
 
         # Bollinger position
@@ -94,9 +97,9 @@ class MultiStrategyEngine:
             score -= 0.2
 
         recommendation = "neutral"
-        if score > 0.5 and rsi_val is not None and rsi_val > 65:
+        if score > 0.5 and rsi["rsi_estimate"] > 65:
             recommendation = "mean_reversion_sell_setup"
-        elif score > 0.5 and rsi_val is not None and rsi_val < 35:
+        elif score > 0.5 and rsi["rsi_estimate"] < 35:
             recommendation = "mean_reversion_buy_setup"
         elif score > 0.3:
             recommendation = "mean_reversion_weak"
@@ -107,7 +110,7 @@ class MultiStrategyEngine:
             "score": round(max(score, 0), 2),
             "confidence": "high" if score > 0.7 else ("medium" if score > 0.5 else "low"),
             "recommendation": recommendation,
-            "rationale": f"RSI={rsi_val}, BB_pos={bb['position']}, vol_contraction={vol_breakout['contraction']}",
+            "rationale": f"RSI={rsi['rsi_estimate']}, BB_pos={bb['position']}, vol_contraction={vol_breakout['contraction']}",
             "disclaimer": "Mean reversion assumes price returns to average — but trends can extend much further than expected. Risk control is essential.",
         }
 

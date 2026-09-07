@@ -16,19 +16,18 @@ class ForexData:
         self.api_key = os.environ.get("EXCHANGE_API_KEY")
         if not self.api_key:
             raise ValueError("EXCHANGE_API_KEY is required for production market data. Set in .env or environment.")
-        self.base_url = "https://api.twelvedata.com"
+        self.base_url = "https://api.twelvedata.com/v1"
 
     def get_pair_rate(self, pair: str = "EUR/USD") -> Optional[float]:
+        symbol = pair.replace("/", "")
         resp = requests.get(
-            f"{self.base_url}/price",
+            f"{self.base_url}/forex_pairs?symbol={symbol}",
             headers={"Authorization": f"apikey {self.api_key}"},
-            params={"symbol": pair},
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
-        price = data.get("price")
-        return float(price) if price is not None else None
+        return data.get("close") or data.get("rate")
 
     def get_technical_score(self, pair: str) -> Dict:
         # Production framework: returns structured analysis framework

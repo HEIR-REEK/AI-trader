@@ -8,10 +8,6 @@ NOTE: This is structured analysis — NOT a guaranteed trading predictor.
 import sys
 sys.path.insert(0, "src")
 
-# Load environment variables from .env file before any module imports
-from dotenv import load_dotenv
-load_dotenv()
-
 from production_server import ProductionService
 
 if __name__ == "__main__":
