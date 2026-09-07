@@ -1,0 +1,10 @@
+2026-09-07 16:52:06,475 [INFO] Production service initialized. Analysis interval: 5 minutes.
+2026-09-07 16:54:38,451 [INFO] Production service initialized. Analysis interval: 5 minutes.
+2026-09-07 16:54:39,006 [INFO] Starting analysis cycle for EUR/USD
+2026-09-07 16:54:39,434 [ERROR] Analysis cycle failed for EUR/USD: 404 Client Error: Not Found for url: https://api.twelvedata.com/v1/price?symbol=EURUSD
+2026-09-07 17:03:37,495 [INFO] Production service initialized. Analysis interval: 5 minutes.
+2026-09-07 17:03:40,096 [INFO] Starting analysis cycle for EUR/USD
+2026-09-07 17:03:47,471 [ERROR] Analysis cycle failed for EUR/USD: 429 Client Error: Too Many Requests for url: https://api.twelvedata.com/time_series?symbol=EUR%2FUSD&interval=1day&outputsize=15
+2026-09-07 17:05:48,279 [INFO] Production service initialized. Analysis interval: 5 minutes.
+2026-09-07 17:05:55,930 [INFO] Starting analysis cycle for EUR/USD
+2026-09-07 17:06:11,051 [INFO] Analysis complete for EUR/USD: dominant=mean_reversion score=0.4

@@ -30,19 +30,21 @@ class RealTimeFeeds:
         if not self.vix_api_key:
             raise ValueError("VIX_API_KEY is required for production feeds. Set in .env or environment.")
 
-        self.base_url = "https://api.twelvedata.com/v1"
+        self.base_url = "https://api.twelvedata.com"
 
     def fetch_live_rate(self, pair: str = "EUR/USD") -> Dict:
         resp = requests.get(
-            f"{self.base_url}/forex_pairs?symbol={pair.replace('/', '')}",
+            f"{self.base_url}/price",
             headers={"Authorization": f"apikey {self.exchange_api_key}"},
+            params={"symbol": pair},
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
+        price = data.get("price")
         return {
             "pair": pair,
-            "rate": data.get("close"),
+            "rate": float(price) if price is not None else None,
             "timestamp": data.get("datetime"),
             "source": "live_api",
             "latency_ms": resp.elapsed.total_seconds() * 1000,
@@ -61,24 +63,43 @@ class RealTimeFeeds:
         return [{"title": a.get("title"), "sentiment": "unknown", "source": "live_api", "url": a.get("url")} for a in articles]
 
     def fetch_live_volatility(self, pair: str = "EUR/USD") -> Dict:
-        resp = requests.get(
-            f"{self.base_url}/market_volatility?pair={pair.replace('/', '')}",
-            headers={"Authorization": f"apikey {self.vix_api_key}"},
-            timeout=10,
-        )
-        resp.raise_for_status()
+        import math
+        for attempt in range(3):
+            resp = requests.get(
+                f"{self.base_url}/time_series",
+                headers={"Authorization": f"apikey {self.vix_api_key}"},
+                params={"symbol": pair, "interval": "1day", "outputsize": 15},
+                timeout=10,
+            )
+            if resp.status_code == 429 and attempt < 2:
+                time.sleep(15 * (attempt + 1))
+                continue
+            resp.raise_for_status()
+            break
         data = resp.json()
+        closes = [float(v["close"]) for v in data.get("values", []) if v.get("close")]
+        if len(closes) >= 2:
+            log_returns = [math.log(closes[i] / closes[i + 1]) for i in range(len(closes) - 1)]
+            daily_vol = (sum(r ** 2 for r in log_returns) / len(log_returns)) ** 0.5
+            annualised_vol = round(daily_vol * math.sqrt(252) * 100, 4)
+        else:
+            annualised_vol = None
+        regime = "unknown"
+        if annualised_vol is not None:
+            regime = "low_volatility" if annualised_vol < 7.0 else ("moderate_volatility" if annualised_vol < 10.0 else "high_volatility")
         return {
             "pair": pair,
-            "vix_style_index": data.get("vix_index"),
-            "implied_vol": data.get("implied_vol"),
-            "regime": data.get("regime", "unknown"),
-            "source": "live_api",
+            "vix_style_index": annualised_vol,
+            "implied_vol": annualised_vol,
+            "regime": regime,
+            "source": "computed_historical",
         }
 
     def feed_health_check(self) -> Dict:
         rate_feed = self.fetch_live_rate("EUR/USD")
+        time.sleep(2)  # brief pause between calls to stay within free-tier rate limits
         news_feed = self.fetch_live_news()
+        time.sleep(2)
         vol_feed = self.fetch_live_volatility()
         return {
             "feeds_active": True,

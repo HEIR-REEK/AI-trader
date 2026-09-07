@@ -11,6 +11,13 @@ import time
 import logging
 from datetime import datetime
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
+# Ensure logs/ directory exists before FileHandler tries to open it
+os.makedirs("logs", exist_ok=True)
+
 # Configure production logging
 logging.basicConfig(
     level=logging.INFO,

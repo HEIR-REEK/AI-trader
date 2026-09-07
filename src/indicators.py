@@ -26,10 +26,10 @@ class TechnicalIndicators:
         # Production note: Real RSI requires historical close prices
         # Without OHLC feed, this returns the framework structure only
         try:
-            symbol = pair.replace("/", "")
             resp = requests.get(
-                f"https://api.twelvedata.com/v1/time_series?symbol={symbol}&interval=1day&outputsize=30",
+                "https://api.twelvedata.com/time_series",
                 headers={"Authorization": f"apikey {self.api_key}"},
+                params={"symbol": pair, "interval": "1day", "outputsize": 30},
                 timeout=10,
             )
             resp.raise_for_status()
