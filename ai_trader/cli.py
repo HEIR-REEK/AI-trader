@@ -91,6 +91,22 @@ def _print_candidates(d) -> None:
             print(f"      - {k}")
 
 
+def _parse_cli_dt(value: str, flag: str) -> "datetime":
+    """Parse --start/--end/--split: naive ISO is assumed UTC, aware ISO is converted."""
+    from datetime import datetime, timezone
+
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(
+            f"{flag}: cannot parse {value!r} "
+            "(expected an ISO date/datetime, e.g. 2025-01-01 or 2025-01-01T12:00:00+02:00)"
+        )
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def cmd_backtest(args: argparse.Namespace) -> int:
     from datetime import datetime, timezone
 
@@ -126,15 +142,32 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         if not prov.available():
             print(f"CSV directory {args.data_dir!r} not found; expected files like {args.data_dir}/{symbol}_15m.csv")
             return 2
-        start = datetime.fromisoformat(args.start).replace(tzinfo=timezone.utc) if args.start else None
-        end = datetime.fromisoformat(args.end).replace(tzinfo=timezone.utc) if args.end else None
+        have = prov.existing(symbol, tfs)
+        lowest = min(tfs, key=lambda t: t.minutes)
+        if lowest not in have:
+            expected = ", ".join(f"{symbol}_{tf.value}.csv" for tf in tfs)
+            found = ", ".join(f"{symbol}_{tf.value}.csv" for tf in sorted(have)) or "none"
+            print(f"entry timeframe file {symbol}_{lowest.value}.csv not found in {args.data_dir!r} "
+                  f"(expected one of: {expected}; found: {found}). Higher timeframes are optional — "
+                  "they are resampled from the lowest one.")
+            return 2
+        try:
+            start = _parse_cli_dt(args.start, "--start") if args.start else None
+            end = _parse_cli_dt(args.end, "--end") if args.end else None
+        except ValueError as e:
+            print(e)
+            return 2
     costs = ExecutionCosts(spread_points=args.spread, commission_per_lot_side=args.commission)
     rules = ManagementRules(order_ttl_bars=args.ttl, max_hold_bars=args.max_hold)
     cfg = BacktestConfig(symbol, timeframes=tfs, start=start, end=end, warmup_bars=warmup, costs=costs, rules=rules,
                          analyze_every=args.every, start_equity=args.equity, label=args.label or args.source)
     cal = _known_empty_calendar() if args.no_news_penalty else None
     if args.split:
-        split_at = datetime.fromisoformat(args.split).replace(tzinfo=timezone.utc)
+        try:
+            split_at = _parse_cli_dt(args.split, "--split")
+        except ValueError as e:
+            print(e)
+            return 2
         sr = in_out_of_sample(prov, cfg, split_at, calendar=cal)
         for res in (sr.in_sample, sr.out_of_sample):
             wf = walk_forward_thresholds(res.candidates_frame()) if args.walk_forward else None
