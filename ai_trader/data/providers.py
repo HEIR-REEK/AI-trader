@@ -135,10 +135,12 @@ def _coerce_ts(series: pd.Series) -> pd.Series:
         non_null = s[s.notna()]
         if len(non_null) and non_null.astype(str).str.strip().str.fullmatch(r"[+-]?\d+(?:\.\d+)?").all():
             return _coerce_numeric_ts(pd.to_numeric(s, errors="coerce"))
-    try:
-        return pd.to_datetime(s, utc=True)
-    except Exception:
-        pass
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # failed strict parse warns before raising
+        try:
+            return pd.to_datetime(s, utc=True)
+        except Exception:
+            pass
     parsed = pd.to_datetime(s, utc=True, format="mixed", errors="coerce")
     if parsed.isna().all():
         raise DataError("cannot parse timestamps (no values understood; expected ISO datetimes or epoch numbers)")
