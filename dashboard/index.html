@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Forex Analysis — Sophisticated Multi-Strategy Engine</title>
+  <style>
+    :root { --bg: #0b0d12; --card: #131620; --text: #e6edf3; --accent: #58a6ff; --positive: #3fb950; --negative: #f85149; --neutral: #8b949e; --warning: #d29922; --purple: #a371f7; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; line-height: 1.5; }
+    header { margin-bottom: 2.5rem; }
+    h1 { font-size: 2.2rem; background: linear-gradient(90deg, var(--accent), var(--purple)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .subtitle { color: var(--neutral); font-size: 1rem; margin-top: 0.25rem; }
+    .banner-warning { background: linear-gradient(90deg, rgba(243, 139, 168, 0.08), rgba(248, 81, 73, 0.08)); border: 1px solid rgba(248, 81, 73, 0.25); border-left: 4px solid var(--negative); padding: 1.25rem; border-radius: 12px; margin-bottom: 2.5rem; }
+    .banner-warning strong { color: var(--negative); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.5rem; }
+    .card { background: var(--card); border: 1px solid #232833; border-radius: 14px; padding: 1.5rem; transition: transform 0.15s ease; }
+    .card:hover { transform: translateY(-2px); border-color: #30363d; }
+    .card h2 { font-size: 1.05rem; margin-bottom: 1rem; letter-spacing: 0.02em; }
+    .card h2 .tag { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0.2rem 0.5rem; border-radius: 6px; margin-left: 0.5rem; }
+    .tag-blue { background: rgba(88,166,255,0.12); color: var(--accent); }
+    .tag-purple { background: rgba(163,113,247,0.12); color: var(--purple); }
+    .tag-warn { background: rgba(210,153,34,0.12); color: var(--warning); }
+    .metric { display: flex; justify-content: space-between; padding: 0.65rem 0; border-bottom: 1px solid #1a1d24; }
+    .metric:last-child { border-bottom: none; }
+    .label { color: var(--neutral); font-size: 0.9rem; }
+    .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .pos { color: var(--positive); }
+    .neg { color: var(--negative); }
+    .neu { color: var(--neutral); }
+    .warn { color: var(--warning); }
+    .news-item { padding: 0.75rem 0; border-bottom: 1px solid #1a1d24; }
+    .news-item:last-child { border-bottom: none; }
+    .news-title { font-size: 0.9rem; }
+    .news-sentiment { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.2rem; }
+    .strategy-row { display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #1a1d24; }
+    .strategy-row:last-child { border-bottom: none; }
+    .strategy-name { font-weight: 600; font-size: 0.9rem; }
+    .strategy-score { font-family: monospace; color: var(--accent); }
+    .master-box { background: linear-gradient(135deg, #161b22, #0e1015); border: 1px solid #232833; border-radius: 14px; padding: 1.75rem; }
+    .master-box h2 { color: var(--purple); margin-bottom: 1rem; }
+    .master-box p { color: #c9d1d9; font-size: 0.95rem; margin-bottom: 0.35rem; }
+    .highlight { color: var(--accent); font-weight: 600; }
+    footer { margin-top: 3rem; color: var(--neutral); font-size: 0.8rem; border-top: 1px solid #1a1d24; padding-top: 1.5rem; }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Sophisticated Forex Analysis Engine</h1>
+    <p class="subtitle">Multi-strategy · Volatility Indices (10 / 10.1) · Technical Indicators · News Sentiment · Structured Analysis Only</p>
+  </header>
+
+  <div class="banner-warning">
+    <strong>IMPORTANT REALITY CHECK</strong> — There is no perfect trading system. No algorithm, no matter how sophisticated (trend-following, mean-reversion, breakout, momentum, or support/resistance), can guarantee winning trades. Markets are unpredictable, driven by unexpected geopolitical events, central bank surprises, liquidity gaps, and human emotion. <strong>This dashboard provides structured analysis points — not predictions.</strong> Always manage risk with stop-losses, proper position sizing, and diversification.
+  </div>
+
+  <div class="grid">
+    <!-- Market Rate -->
+    <div class="card">
+      <h2>Market Rate <span class="tag tag-blue">Live</span></h2>
+      <div class="metric"><span class="label">Pair</span> <span class="value">EUR/USD</span></div>
+      <div class="metric"><span class="label">Rate</span> <span class="value">1.0842</span></div>
+      <div class="metric"><span class="label">Status</span> <span class="value neu">Market Open</span></div>
+      <div class="metric"><span class="label">Note</span> <span class="label" style="font-size:0.75rem;color:#8b949e;">Real-time feeds require API keys in production.</span></div>
+    </div>
+
+    <!-- Volatility Indices -->
+    <div class="card">
+      <h2>Volatility Indices <span class="tag tag-purple">10 / 10.1</span></h2>
+      <div class="metric"><span class="label">Vol Index 10</span> <span class="value">8.2</span></div>
+      <div class="metric"><span class="label">Vol Index 10.1</span> <span class="value">8.5</span></div>
+      <div class="metric"><span class="label">Implied Vol</span> <span class="value">7.8</span></div>
+      <div class="metric"><span class="label">VIX Correlation</span> <span class="value">0.42</span></div>
+      <div class="metric"><span class="label">Regime</span> <span class="value neu">Moderate</span></div>
+    </div>
+
+    <!-- Technical Indicators -->
+    <div class="card">
+      <h2>Technical Indicators <span class="tag tag-blue">Advanced</span></h2>
+      <div class="metric"><span class="label">RSI (14)</span> <span class="value">52.4 <span class="neu" style="font-size:0.8rem;">(Neutral)</span></span></div>
+      <div class="metric"><span class="label">MACD</span> <span class="value">0.04 <span class="neu" style="font-size:0.8rem;">(Weak Bull)</span></span></div>
+      <div class="metric"><span class="label">ADX</span> <span class="value">22.5 <span class="neu" style="font-size:0.8rem;">(Weak Trend)</span></span></div>
+      <div class="metric"><span class="label">ATR</span> <span class="value">0.0085</span></div>
+      <div class="metric"><span class="label">Bollinger Pos</span> <span class="value neu">Middle Band</span></div>
+    </div>
+
+    <!-- News Sentiment -->
+    <div class="card">
+      <h2>News Sentiment <span class="tag tag-blue">Real-Time</span></h2>
+      <div class="metric"><span class="label">Overall</span> <span class="value neu">Neutral</span></div>
+      <div class="news-item">
+        <div class="news-title">Central bank signals cautious rate approach</div>
+        <div class="news-sentiment neu">Neutral</div>
+      </div>
+      <div class="news-item">
+        <div class="news-title">Geopolitical tensions rise in key region</div>
+        <div class="news-sentiment neg">Negative</div>
+      </div>
+      <div class="news-item">
+        <div class="news-title">Economic data exceeds forecasts</div>
+        <div class="news-sentiment pos">Positive</div>
+      </div>
+    </div>
+
+    <!-- Strategy Scores -->
+    <div class="card">
+      <h2>Strategy Scores <span class="tag tag-purple">Multi-Strategy</span></h2>
+      <div class="strategy-row"><span class="strategy-name">Trend Following</span> <span class="strategy-score">0.45</span></div>
+      <div class="strategy-row"><span class="strategy-name">Mean Reversion</span> <span class="strategy-score">0.30</span></div>
+      <div class="strategy-row"><span class="strategy-name">Breakout / Vol</span> <span class="strategy-score">0.25</span></div>
+      <div class="strategy-row"><span class="strategy-name">Momentum Conv.</span> <span class="strategy-score">0.38</span></div>
+      <div class="strategy-row"><span class="strategy-name">Support / Resist</span> <span class="strategy-score">0.52</span></div>
+      <div class="metric" style="margin-top:0.5rem; padding-top:0.5rem; border-top:1px dashed #30363d;"><span class="label">Dominant</span> <span class="value" style="color:var(--purple);">Support/Resist — Low Conviction</span></div>
+    </div>
+  </div>
+
+  <div class="master-box" style="margin-top: 2rem;">
+    <h2>Master Structured Recommendation <span style="font-size:0.75rem; color:#8b949e; font-weight:400;">Not a Prediction</span></h2>
+    <p><span class="highlight">Pair:</span> EUR/USD</p>
+    <p><span class="highlight">Dominant Strategy:</span> Support / Resistance (score: 0.52 — LOW conviction)</p>
+    <p><span class="highlight">News Sentiment:</span> Neutral — mixed headlines, no clear directional catalyst.</p>
+    <p><span class="highlight">Volatility Regime:</span> Moderate (Vol Index 10: 8.2 / 10.1: 8.5) — expansion/contraction balanced.</p>
+    <p><span class="highlight">Multi-Timeframe:</span> Mixed alignment — no strong consensus across 10m, 1h, 4h, daily, weekly.</p>
+    <p><strong>Recommendation:</strong> NEUTRAL / LOW CONVICTION. No dominant strategy shows sufficient alignment to justify a high-confidence directional trade. The support/resistance framework scores highest only because weekly trend is neutral and volatility is contracting — but this indicates range-bound conditions, not a directional opportunity.</p>
+    <p><strong>Risk Note:</strong> Even if all 5 strategies aligned (rare), unexpected news could reverse the market instantly. Use a stop-loss, size positions to risk no more than 1-2% of capital per trade, and never rely solely on technical or sentiment analysis.</p>
+  </div>
+
+  <footer>
+    <p><strong>Built with trading wisdom:</strong> Trend Following · Mean Reversion · Breakout / Volatility · Momentum Convergence · Support & Resistance. All integrated with RSI, MACD, Bollinger Bands, ATR, ADX, Multi-Timeframe alignment, News Sentiment, and Volatility Indices (10 and derived 10.1).</p>
+    <p>Remember: <strong>There is no perfect system.</strong> Sophistication increases structure — not certainty.</p>
+  </footer>
+</body>
+</html>
