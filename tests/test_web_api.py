@@ -134,3 +134,64 @@ def test_backtest_job_flow(client):
 
 def test_backtest_unknown_job_404(client):
     assert client.get("/api/backtest/jobs/doesnotexist").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# CSV upload / datasets (browser path to REAL market history)
+# ---------------------------------------------------------------------------
+
+def _csv_bytes(symbol="EURUSD", timeframe="15m", bars=400, start="2026-01-05 08:00:00+00:00"):
+    import numpy as np
+    import pandas as pd
+    freq = {"15m": "15min", "1h": "1h"}[timeframe]
+    idx = pd.date_range(start, periods=bars, freq=freq, tz="UTC")
+    close = np.linspace(1.10, 1.12, bars) + np.random.default_rng(3).normal(0, 0.001, bars)
+    open_ = np.concatenate([[close[0]], close[:-1]])
+    high = np.maximum(open_, close) + 0.0008
+    low = np.minimum(open_, close) - 0.0008
+    df = pd.DataFrame({"open": open_, "high": high, "low": low, "close": close, "volume": 100.0}, index=idx)
+    df.index.name = "ts"
+    return df.to_csv().encode()
+
+
+def test_upload_csv_roundtrip(client):
+    import os
+    path = os.path.join("data", "EURUSD_15m.csv")
+    if os.path.exists(path):
+        os.remove(path)
+    try:
+        r = client.post("/api/upload_csv", files={"file": ("EURUSD_15m.csv", _csv_bytes(), "text/csv")})
+        assert r.status_code == 200, r.text
+        info = r.json()
+        assert info["symbol"] == "EURUSD" and info["timeframe"] == "15m"
+        assert info["bars"] == 400 and os.path.exists(path)
+
+        # now the csv source can serve the uploaded real data (chart + analysis entry)
+        d = client.get("/api/candles", params={"symbol": "EURUSD", "timeframe": "15m",
+                                               "limit": 100, "source": "csv"}).json()
+        assert d["count"] == 100
+        assert 1.0 < d["candles"][-1]["close"] < 1.3  # real EURUSD-ish level, not the ~2000 synthetic base
+        # analyze on the uploaded file (entry timeframe present, HTFs resample)
+        r2 = client.post("/api/analyze", json={"symbol": "EURUSD", "source": "csv", "seed": 1,
+                                               "timeframes": ["15m", "1h", "4h"]})
+        assert r2.status_code == 200, r2.text
+
+        ds = client.get("/api/data/datasets").json()
+        assert any(x["file"] == "EURUSD_15m.csv" for x in ds["datasets"])
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+
+def test_upload_csv_rejects_bad_names_and_unknown_symbols(client):
+    bad_name = client.post("/api/upload_csv", files={"file": ("random.txt", b"1,2,3", "text/plain")})
+    assert bad_name.status_code == 400
+    assert "SYMBOL_TIMEFRAME.csv" in bad_name.json()["detail"]
+
+    unknown = client.post("/api/upload_csv", files={"file": ("DOGEUSD_15m.csv", _csv_bytes(), "text/csv")})
+    assert unknown.status_code == 400
+    assert "Unknown instrument" in unknown.json()["detail"]
+
+    tiny = client.post("/api/upload_csv", files={"file": ("XAUUSD_15m.csv", _csv_bytes(bars=10), "text/csv")})
+    assert tiny.status_code == 400
+    assert "bars" in tiny.json()["detail"]

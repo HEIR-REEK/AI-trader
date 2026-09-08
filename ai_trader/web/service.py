@@ -5,6 +5,8 @@ This module contains no HTTP code — it is the browser equivalent of
 """
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -21,7 +23,7 @@ from ai_trader.backtest import (
     result_to_dict,
     walk_forward_thresholds,
 )
-from ai_trader.config.instruments import all_instruments
+from ai_trader.config.instruments import all_instruments, get_instrument
 from ai_trader.config.settings import get_settings
 from ai_trader.core.enums import AssetClass, Timeframe
 from ai_trader.core.exceptions import DataError, ProviderError
@@ -261,6 +263,93 @@ def get_candles(symbol: str, timeframe: str = "15m", limit: int = 300,
     return {"symbol": symbol, "timeframe": actual_tf.value,
             "requested_timeframe": tf.value, "source": source, "seed": seed,
             "count": len(candles), "note": note, "candles": candles}
+
+
+# ------------------------------------------------------------------ local data files (browser CSV upload)
+#
+# The engine treats the data/ directory as its history store: {SYMBOL}_{tf}.csv.
+# These helpers let the browser UI upload real broker/MT4/export history into it
+# so users can run REAL analysis without touching the server filesystem.
+
+_CSV_NAME_RE = re.compile(r"(?i)^([a-z0-9]{1,16})_(1m|5m|15m|30m|1h|4h|1d|1w|1M)\.csv$")
+_MAX_UPLOAD_BYTES = 80 * 1024 * 1024
+
+
+def _parse_csv_name(filename: str) -> Optional[tuple]:
+    """Return (symbol, Timeframe) for a valid upload name like ``EURUSD_15m.csv``."""
+    m = _CSV_NAME_RE.match(os.path.basename(filename or "").strip())
+    if not m:
+        return None
+    tf_part = m.group(2)
+    tf = Timeframe.MN1 if tf_part.upper() == "1M" else Timeframe(tf_part.lower())
+    return m.group(1).upper(), tf
+
+
+def list_datasets(data_dir: str = "data") -> Dict[str, Any]:
+    """History files currently on disk that the ``csv`` source can serve."""
+    items: List[Dict[str, Any]] = []
+    if os.path.isdir(data_dir):
+        for fn in sorted(os.listdir(data_dir)):
+            parsed = _parse_csv_name(fn)
+            if not parsed:
+                continue
+            path = os.path.join(data_dir, fn)
+            try:
+                size = os.path.getsize(path)
+                mod = os.path.getmtime(path)
+            except OSError:
+                continue
+            items.append({"file": fn, "symbol": parsed[0], "timeframe": parsed[1].value,
+                          "size_kb": round(size / 1024, 1),
+                          "modified": datetime.fromtimestamp(mod, timezone.utc).isoformat()})
+    return {"count": len(items), "datasets": items}
+
+
+def save_uploaded_csv(filename: str, content: bytes, data_dir: str = "data") -> Dict[str, Any]:
+    """Validate + store an uploaded OHLCV CSV so the ``csv`` source can serve it.
+
+    Accepts any dialect the engine already reads (comma/tab/semicolon/pipe,
+    MT4/5 headers, split DATE+TIME, epoch, ...). Returns a summary incl. the
+    number of bars and the date range actually imported.
+    """
+    if not content:
+        raise ValueError("The uploaded file is empty.")
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise ValueError(f"File too large ({len(content) / 1048576:.1f} MB, max {_MAX_UPLOAD_BYTES // 1048576} MB).")
+    parsed = _parse_csv_name(filename)
+    if parsed is None:
+        raise ValueError("Filename must look like SYMBOL_TIMEFRAME.csv — e.g. EURUSD_15m.csv or XAUUSD_1h.csv "
+                         "(timeframes: 1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1M).")
+    symbol, tf = parsed
+    try:
+        get_instrument(symbol)
+    except KeyError as e:
+        from ai_trader.config.instruments import symbols as known_symbols
+        raise ValueError(f"Unknown instrument {symbol!r} — the engine can only analyse its registry "
+                         f"(see the Instruments page): {', '.join(known_symbols())}.") from e
+
+    from ai_trader.data.providers import CSVProvider, normalise_ohlcv, read_csv_smart
+    os.makedirs(data_dir, exist_ok=True)
+    dest = os.path.join(data_dir, f"{symbol}_{tf.value}.csv")
+    tmp = dest + ".uploading"
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(content)
+        df = normalise_ohlcv(read_csv_smart(tmp))
+    except DataError as e:
+        raise ValueError(str(e)) from e
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    if len(df) < 60:
+        raise ValueError(f"Only {len(df)} bars in the file — at least 60 are needed; "
+                         "several hundred are recommended for reliable multi-timeframe context.")
+    df.to_csv(tmp, index_label="ts")
+    os.replace(tmp, dest)  # atomic: never leave a half-written dataset behind
+    first = pd.Timestamp(df.index[0]).isoformat()
+    last = pd.Timestamp(df.index[-1]).isoformat()
+    return {"file": os.path.basename(dest), "symbol": symbol, "timeframe": tf.value,
+            "bars": int(len(df)), "first": first, "last": last, "path": dest}
 
 
 # ------------------------------------------------------------------ backtest
