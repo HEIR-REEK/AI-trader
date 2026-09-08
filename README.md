@@ -18,7 +18,7 @@ Then open **http://localhost:8000** in your browser.
 
 | Page | What it does |
 |------|--------------|
-| **Analyze** | Pick a symbol + data source → full engine verdict (TRADE / NO TRADE), price chart with entry/SL/TP, score breakdown, candidates, explanation |
+| **Analyze** | Pick a symbol + data source → full engine verdict (TRADE / NO TRADE), price chart with entry/SL/TP, score breakdown, candidates, explanation. Includes **Your Market Data**: upload real history CSV straight from the browser and analyze it. |
 | **Scenarios** | Scripted textbook markets (long / short / range fade / choppy) with switchable setup components |
 | **Backtest** | Replay history as background jobs with live progress, equity curve, trades, walk-forward & overfit reports |
 | **Instruments** | Searchable list of all 28 supported instruments |
@@ -30,11 +30,12 @@ API docs (optional, for integrations): http://localhost:8000/api/docs
 
 | Source | Needs | Notes |
 |--------|-------|-------|
-| `synthetic` | nothing | Random regime-based price paths. Proves the *plumbing*, never the edge. Default. |
-| `csv` | `data/{SYMBOL}_{tf}.csv` files | Real history. Only the entry timeframe file is required (e.g. `XAUUSD_15m.csv`); higher timeframes resample automatically. |
+| `synthetic` | nothing | Random regime-based price paths. Proves the *plumbing*, never the edge. Default. Results are clearly marked **SIMULATED**. |
+| `csv` | `data/{SYMBOL}_{tf}.csv` files | **Real history.** Upload files through the Analyze page (*Your Market Data* → *Upload CSV*), or drop them into `data/`. Only the entry timeframe file is required (e.g. `XAUUSD_15m.csv`); higher timeframes resample automatically. |
 | `twelvedata` | `AITRADER_TWELVEDATA_API_KEY` | Live market data via the TwelveData API. |
 
-Set keys in the environment or a `.env` file (see `.env.example`).
+Set keys in the environment or a `.env` file (see `.env.example`) — a key in
+`.env` is picked up automatically.
 
 ## Project layout
 

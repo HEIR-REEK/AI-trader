@@ -89,6 +89,18 @@
         </div>
         <p class="hint" id="an-hint">Synthetic data proves the plumbing, never the edge. For real analysis use CSV history or TwelveData.</p>
       </div>
+      <div class="card" id="ds-card">
+        <div class="ds-head">
+          <div>
+            <h2>Your Market Data <span class="count">CSV history on this server</span></h2>
+            <p class="muted">Upload <b>real</b> history (exported from your broker, MT4/5, Dukascopy, TradingView…) and the engine will analyze the actual market. Any separator and column naming is fine — just name the file <code>SYMBOL_TIMEFRAME.csv</code>, e.g. <code>XAUUSD_15m.csv</code> or <code>EURUSD_1h.csv</code>.</p>
+          </div>
+          <button class="btn" id="ds-upload-btn" type="button">📂&nbsp; Upload CSV…</button>
+          <input type="file" id="ds-file" accept=".csv,text/csv" hidden>
+        </div>
+        <div class="chips" id="ds-chips"><span class="muted small">Loading…</span></div>
+        <p class="hint">💡 After uploading, click the chip (or set Data&nbsp;source = CSV) and run the analysis — the chart and verdict will then use <b>your real bars</b>, not simulated ones.</p>
+      </div>
       <div id="an-result"></div>
     </section>
 

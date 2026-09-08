@@ -255,3 +255,12 @@ canvas.candles { width: 100%; height: 380px; display: block; border-radius: 8px;
   .top-actions { display: none; }
   .score-row { grid-template-columns: 110px 1fr 70px; }
 }
+
+/* ---------- your market data (CSV upload) ---------- */
+.ds-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.ds-head h2 { margin-bottom: 2px; }
+.ds-head code { background: var(--bg2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 12px; color: var(--accent); }
+.ds-head .btn { flex-shrink: 0; margin-top: 4px; }
+#ds-card .chips { margin-top: 12px; }
+button.ds-chip { cursor: pointer; font: inherit; color: var(--text); transition: border-color .15s ease, color .15s ease; }
+button.ds-chip:hover { border-color: var(--accent); color: var(--accent); }

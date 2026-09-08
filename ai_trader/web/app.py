@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -27,9 +27,11 @@ from .service import (
     SCENARIOS,
     analyze_symbol,
     get_candles,
+    list_datasets,
     list_instruments,
     run_backtest,
     run_scenario,
+    save_uploaded_csv,
     settings_view,
 )
 
@@ -110,6 +112,35 @@ def scenarios() -> Dict[str, Any]:
 @app.get("/api/settings")
 def settings() -> Dict[str, Any]:
     return settings_view()
+
+
+# ------------------------------------------------------------------ local data files (browser CSV upload)
+
+@app.get("/api/data/datasets")
+def datasets() -> Dict[str, Any]:
+    try:
+        return list_datasets()
+    except Exception as e:  # noqa: BLE001
+        raise _err(e, 500)
+
+
+@app.post("/api/upload_csv")
+def upload_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
+    try:
+        content = file.file.read()
+    except Exception as e:  # noqa: BLE001
+        raise _err(Exception(f"Could not read the upload: {e}"), 400)
+    finally:
+        try:
+            file.file.close()
+        except Exception:  # pragma: no cover
+            pass
+    try:
+        return save_uploaded_csv(file.filename or "", content)
+    except ValueError as e:
+        raise _err(e)
+    except Exception as e:  # noqa: BLE001
+        raise _err(e, 500)
 
 
 # ------------------------------------------------------------------ analysis

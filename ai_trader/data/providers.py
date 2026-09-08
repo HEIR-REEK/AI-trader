@@ -421,6 +421,16 @@ class TwelveDataProvider:
 
     def __post_init__(self):
         self.api_key = self.api_key or os.environ.get("AITRADER_TWELVEDATA_API_KEY") or os.environ.get("TWELVEDATA_API_KEY")
+        if not self.api_key:
+            # Settings is pydantic-settings aware and reads .env / AITRADER_*
+            # vars, but pydantic-settings does not push those values back into
+            # os.environ — so fall back to it here, otherwise a key placed in
+            # .env (as the README suggests) would never be picked up.
+            try:  # lazy import: config never imports data.providers, but be safe
+                from ai_trader.config.settings import get_settings
+                self.api_key = get_settings().twelvedata_api_key
+            except Exception:  # pragma: no cover
+                pass
 
     def available(self) -> bool:
         return bool(self.api_key)

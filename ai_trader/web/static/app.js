@@ -30,6 +30,16 @@
     return n > 0 ? 'v-green' : n < 0 ? 'v-red' : 'v-muted';
   }
 
+  // Honest data-source labelling: simulated prices must never be mistaken for real ones.
+  function sourceBadge(source) {
+    const s = String(source || '').toLowerCase();
+    if (s === 'synthetic') return { cls: 'warn', label: '⚠ SIMULATED — generated prices, not real market data' };
+    if (s === 'csv') return { cls: 'info', label: 'REAL history (CSV)' };
+    if (s === 'twelvedata') return { cls: 'info', label: 'LIVE feed (TwelveData)' };
+    if (s === 'scenario' || s === 'frames') return { cls: 'purple', label: 'Scripted demo data' };
+    return { cls: 'neutral', label: 'source: ' + String(source || '?') };
+  }
+
   function toast(msg, kind) {
     const box = $('#toasts');
     const el = document.createElement('div');
@@ -208,7 +218,7 @@
         '<td><span class="tag ' + tag + '">' + esc(dir) + '</span></td>' +
         '<td class="num"><b>' + num(c.score, 1) + '</b></td>' +
         '<td class="num">' + (c.rr_tp2 !== undefined && c.rr_tp2 !== null ? '1:' + num(c.rr_tp2, 1) : '—') + '</td>' +
-        '<td>' + esc(outcome) + '</td></tr>';
+        '<td>—</td></tr>';
     }).join('');
     return '<div class="table-wrap"><table class="tbl"><thead><tr><th>Strategy</th><th>Dir</th><th class="num">Score</th><th class="num">R:R TP2</th><th>Outcome</th></tr></thead><tbody>' +
       rows + '</tbody></table></div>';
@@ -308,11 +318,13 @@
     const vc = verdictClass(d.decision);
 
     let html = '';
+    const srcBadge = sourceBadge(meta.source);
     html += '<div class="verdict ' + vc + '"><div class="badge">' + verdictLabel(d.decision) + '</div>' +
       '<div class="v-msg"><b>' + esc(d.instrument || '') + '</b> — ' + esc(d.message || '') + '</div>' +
       '<div class="v-meta">' + esc(d.created_at || '') +
-      (meta.source ? '<br>source: ' + esc(meta.source) + ' · seed ' + esc(meta.seed) : '') +
-      (meta.scenario ? '<br>scenario: ' + esc(meta.scenario) : '') + '</div></div>';
+      '<br><span class="tag ' + srcBadge.cls + '">' + srcBadge.label + '</span>' +
+      (meta.source === 'synthetic' ? ' · seed ' + esc(meta.seed) : '') +
+      (meta.scenario ? '<br>scenario: ' + esc(meta.scenario) + ' (expected: ' + esc(meta.expected || '—') + ')' : '') + '</div></div>';
 
     // stat cards
     const biasTag = d.bias === 'BUY' ? 'buy' : d.bias === 'SELL' ? 'sell' : 'neutral';
@@ -416,7 +428,15 @@
     try {
       const data = await api('/api/candles?' + params.toString());
       const note = document.getElementById(chartId + '-note');
-      if (note) note.textContent = data.symbol + ' · ' + data.timeframe + ' · ' + data.count + ' bars' + (data.note ? ' · ' + data.note : '');
+      if (note) {
+        const b = sourceBadge(opts.source);
+        note.textContent = data.symbol + ' · ' + data.timeframe + ' · ' + data.count + ' bars' + (data.note ? ' · ' + data.note : '');
+        const tag = document.createElement('span');
+        tag.className = 'tag ' + b.cls;
+        tag.style.marginLeft = '6px';
+        tag.textContent = b.label;
+        note.appendChild(tag);
+      }
       const ov = {};
       if (plan) {
         ov.entryLow = plan.entry_low; ov.entryHigh = plan.entry_high;
@@ -454,13 +474,72 @@
     box.innerHTML = loadingBox('Running decision engine on ' + body.symbol + '…');
     try {
       const payload = await api('/api/analyze', { method: 'POST', body: JSON.stringify(body) });
-      renderDecision(box, payload, { symbol: body.symbol, source: body.source, seed: body.seed });
+      renderDecision(box, payload, { symbol: body.symbol, source: body.source, seed: body.seed,
+        timeframe: body.timeframes[0] || '15m' });
       const vd = String(payload.decision.decision || '');
       toast(body.symbol + ': ' + vd.replace('_', ' '), vd === 'TRADE' ? 'ok' : '');
       box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) {
       box.innerHTML = '<div class="card"><h2>Analysis failed</h2><p class="v-red">' + esc(e.message) + '</p></div>';
       toast(e.message, 'err');
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+
+  /* ============================== your market data (CSV upload) ============================== */
+  async function loadDatasets() {
+    const el = $('#ds-chips');
+    if (!el) return;
+    try {
+      const d = await api('/api/data/datasets');
+      if (!d.datasets.length) {
+        el.innerHTML = '<span class="muted small">No real history on this server yet — click “Upload CSV…” and pick a file exported from your broker.</span>';
+        return;
+      }
+      el.innerHTML = '';
+      d.datasets.forEach((ds) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip ds-chip';
+        b.title = 'Analyze ' + ds.symbol + ' on its real ' + ds.timeframe + ' history (' + ds.size_kb + ' KB)';
+        b.textContent = ds.symbol + ' · ' + ds.timeframe + ' · ' + ds.size_kb + ' KB';
+        b.addEventListener('click', () => {
+          $('#an-symbol').value = ds.symbol;
+          $('#an-source').value = 'csv';
+          $('#an-source').dispatchEvent(new Event('change'));
+          toast(ds.file + ' selected — click ▶ Run Analysis for real bars', 'ok');
+        });
+        el.appendChild(b);
+      });
+    } catch (e) { el.innerHTML = '<span class="muted small">Datasets unavailable.</span>'; }
+  }
+
+  $('#ds-upload-btn').addEventListener('click', () => $('#ds-file').click());
+  $('#ds-file').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const btn = $('#ds-upload-btn');
+    setBusy(btn, true, 'Importing…');
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const res = await fetch('/api/upload_csv', { method: 'POST', body: fd });
+      let data = null;
+      try { data = await res.json(); } catch (err) { /* non-JSON */ }
+      if (!res.ok) {
+        const msg = (data && (data.detail || data.message)) || ('HTTP ' + res.status);
+        throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      }
+      toast(data.symbol + ' · ' + data.timeframe + ': ' + num(data.bars, 0) + ' real bars imported (' +
+        String(data.first || '').slice(0, 10) + ' → ' + String(data.last || '').slice(0, 10) + ')', 'ok');
+      $('#an-symbol').value = data.symbol;
+      $('#an-source').value = 'csv';
+      $('#an-source').dispatchEvent(new Event('change'));
+      await loadDatasets();
+    } catch (err) {
+      toast('Upload failed: ' + err.message, 'err');
     } finally {
       setBusy(btn, false);
     }
@@ -825,6 +904,7 @@
   checkHealth();
   setInterval(checkHealth, 15000);
   loadSymbolList();
+  loadDatasets();
   loadScenarios();
   // Scoring weights are fetched and rendered by loadSettings() when the Settings view is opened.
 })();

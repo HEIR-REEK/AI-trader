@@ -12,3 +12,4 @@ data/cache/
 logs/
 .pytest_cache/
 .ruff_cache/
+data/*.csv
