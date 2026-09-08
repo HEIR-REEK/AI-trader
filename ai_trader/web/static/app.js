@@ -214,6 +214,92 @@
       rows + '</tbody></table></div>';
   }
 
+  function _mtfBiasTag(bias) {
+    return bias === 'BUY' ? 'buy' : bias === 'SELL' ? 'sell' : 'neutral';
+  }
+
+  function _mtfBiasChip(label, bias, strength) {
+    const tag = _mtfBiasTag(bias);
+    const strengthTxt = (strength !== undefined && strength !== null && !isNaN(Number(strength)))
+      ? ' <span class="small muted">(' + pct(strength, 0) + ')</span>' : '';
+    return '<span class="chip">' + esc(label) + ' ' +
+      '<span class="tag ' + tag + '">' + esc(bias || '—') + '</span>' + strengthTxt + '</span>';
+  }
+
+  const _MTF_LEVEL_LABELS = {
+    pdh: 'PDH', pdl: 'PDL', pwh: 'PWH', pwl: 'PWL',
+    hod: 'HOD', lod: 'LOD', session_high: 'Session High', session_low: 'Session Low',
+  };
+  function _mtfLevelLabel(k) {
+    return _MTF_LEVEL_LABELS[k] || String(k).replace(/_/g, ' ').toUpperCase();
+  }
+
+  // Render the multi-timeframe context summary (context.mtf from MultiTimeframeContext.summary()).
+  function mtfSummary(mtf) {
+    if (!mtf || typeof mtf !== 'object') return '<p class="muted small">No multi-timeframe context available.</p>';
+
+    let h = '<div class="mtf-summary">';
+
+    // top-line biases / alignment
+    h += '<div class="chips">';
+    h += _mtfBiasChip('HTF', mtf.htf_bias, mtf.htf_strength);
+    h += _mtfBiasChip('Structural', mtf.structural_bias, mtf.structural_strength);
+    h += _mtfBiasChip('Dominant', mtf.dominant_bias);
+    if (mtf.alignment !== undefined && mtf.alignment !== null && !isNaN(Number(mtf.alignment))) {
+      h += '<span class="chip">Alignment <b class="' + clsFor(mtf.alignment) + '">' + signed(mtf.alignment, 2) + '</b></span>';
+    }
+    h += '</div>';
+
+    // conflicts
+    if (mtf.conflicts && mtf.conflicts.length) {
+      h += '<div class="chips" style="margin-top:8px">' +
+        mtf.conflicts.map((c) => '<span class="chip warn">⚠ ' + esc(c) + '</span>').join(' ') + '</div>';
+    }
+
+    // key levels
+    if (mtf.key_levels && typeof mtf.key_levels === 'object' && Object.keys(mtf.key_levels).length) {
+      h += '<div class="kv" style="margin-top:10px">';
+      h += Object.keys(mtf.key_levels).map((k) =>
+        '<span class="k">' + esc(_mtfLevelLabel(k)) + '</span><span class="v">' + num(mtf.key_levels[k], 5) + '</span>'
+      ).join(' ');
+      h += '</div>';
+    }
+
+    // per-timeframe cards
+    const tfs = mtf.timeframes && typeof mtf.timeframes === 'object' ? Object.keys(mtf.timeframes) : [];
+    if (tfs.length) {
+      h += '<div class="stats" style="margin-top:12px">';
+      tfs.forEach((tfKey) => {
+        const a = mtf.timeframes[tfKey] || {};
+        const tag = _mtfBiasTag(a.trend_bias);
+        const parts = [];
+        if (a.price !== undefined && a.price !== null) parts.push('price ' + num(a.price));
+        if (a.ema_stack && a.ema_stack !== 'n/a') parts.push('EMA ' + esc(a.ema_stack));
+        if (a.rsi != null) parts.push('RSI ' + num(a.rsi, 0));
+        if (a.adx != null) parts.push('ADX ' + num(a.adx, 0));
+        if (a.structure && a.structure.trend) parts.push('struct ' + esc(a.structure.trend));
+        if (a.volatility) parts.push('vol ' + esc(a.volatility));
+        if (a.premium_discount && a.premium_discount !== 'unknown') parts.push(esc(a.premium_discount));
+        if (a.recent_sweep) parts.push('sweep ' + esc(a.recent_sweep));
+
+        const pats = (a.patterns && a.patterns.length) ? a.patterns.map(esc).join(', ') : '';
+        h += '<div class="stat">' +
+          '<div class="k">' + esc(tfKey) + '</div>' +
+          '<div class="v"><span class="tag ' + tag + '">' + esc(a.trend_bias || '—') + '</span> ' +
+            '<span class="small muted">' + pct(a.trend_strength, 0) + '</span></div>' +
+          '<div class="s">' + (parts.length ? parts.map((p) => esc(p)).join(' · ') : '—') + '</div>' +
+          (pats ? '<div class="s">' + pats + '</div>' : '') +
+          '</div>';
+      });
+      h += '</div>';
+    } else {
+      h += '<p class="muted small" style="margin-top:10px">No per-timeframe analysis present.</p>';
+    }
+
+    h += '</div>';
+    return h;
+  }
+
   function renderDecision(container, payload, chartOpts) {
     const d = payload.decision || {};
     const plan = d.plan || null;
@@ -740,5 +826,5 @@
   setInterval(checkHealth, 15000);
   loadSymbolList();
   loadScenarios();
-  loadScoreWeights();
+  // Scoring weights are fetched and rendered by loadSettings() when the Settings view is opened.
 })();
